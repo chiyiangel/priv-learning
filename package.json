@@ -1,0 +1,12 @@
+{
+  "name": "learning",
+  "private": true,
+  "description": "Static interactive lessons (SfM and later topics). No build step.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "serve": "python3 -m http.server 8000",
+    "test": "node --experimental-default-type=module tests/test_algos.mjs && node --experimental-default-type=module tests/test_incremental.mjs && node --experimental-default-type=module tests/test_lab.mjs"
+  }
+}

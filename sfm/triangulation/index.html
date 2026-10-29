@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>从二维匹配到三维稀疏点云 · SfM 交互教程 · Learning</title>
+<meta name="description" content="交互式讲解 SfM：对极几何、相对位姿、三角化、PnP 注册与光束法平差，如何把 2D 匹配变成 3D 稀疏点云。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230d1117%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%235cc8ff%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="./js/main.js"></script>
+</head>
+<body>
+<div class="topbar"><div class="in">
+  <a class="brand" href="/">Learning<b>.</b></a>
+  <nav><a href="/">课程列表</a><a class="on" href="/sfm/triangulation/">SfM · 三角化</a></nav>
+  <span class="spacer"></span>
+  <span class="note">全部算法在浏览器里真实计算</span>
+</div></div>
+
+<div class="wrap lesson">
+<aside class="toc" id="toc"><div class="h">本课目录</div></aside>
+<main>
+<header class="lh">
+  <div class="crumb"><a href="/">课程</a> / SfM / 三角化与稀疏重建</div>
+  <h1>匹配之后：二维对应点如何变成三维稀疏点云</h1>
+  <p>你已经会提特征、做匹配。这一课回答：<b>手里只有“图 A 的像素 ↔ 图 B 的像素”，怎么得到相机位姿和 3D 点？</b></p>
+  <p class="note">每章一个交互组件，所有算法（8 点法、RANSAC、SVD、三角化、PnP、LM-BA）都是 JS 现场计算，不是动画。建议按顺序读；3D 视图可以拖动旋转、滚轮缩放。</p>
+</header>
+
+<!-- ================= 1 ================= -->
+<section class="chapter" id="ch1">
+<h2><span class="n">01</span>全局流程：增量式 SfM 在做什么</h2>
+<p>SfM 要同时求两样东西：每张图像的相机位姿 $(R_i,t_i)$（以及内参），和场景中的稀疏 3D 点 $X_j$。难点是<b>鸡生蛋</b>：一个 2D 观测只给出一条射线，要两条以上<i>位姿已知</i>的射线才能交出 3D 点；而求位姿又要先有 3D 点（或对极约束）。</p>
+<p>增量式 SfM（COLMAP 的做法）用“自举”打破循环：先用<b>对极几何</b>从一对图像得到相对位姿，<b>三角化</b>出第一批 3D 点；之后用这些 3D 点通过 <b>PnP</b> 注册新图像，再三角化新点，并不断用<b>光束法平差（BA）</b>压住误差。点下面的步骤查看每一步的输入、输出和 COLMAP 的默认做法。</p>
+<div class="mount" data-mod="ch1"></div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section class="chapter" id="ch2">
+<h2><span class="n">02</span>相机模型与投影</h2>
+<p>针孔相机把世界点 $X$ 变到相机坐标系，再除以深度，最后用内参映射到像素：</p>
+$$X_c = RX+t,\qquad x_n=\begin{pmatrix}X_c/Z_c\\ Y_c/Z_c\end{pmatrix},\qquad u = f\,x_n + c \quad\Longleftrightarrow\quad \tilde u \sim K\,[R\mid t]\,\tilde X .$$
+<p>相机中心 $C=-R^\top t$。本课坐标系采用 CV 约定：相机 $x$ 向右、$y$ 向下、$z$ 向前。关键事实：<b>除以 $Z_c$ 丢掉了深度</b>——射线 $X(\lambda)=C+\lambda R^\top K^{-1}\tilde u$ 上所有点都投到同一个像素。SfM 的全部工作，就是用多个视角把这个丢掉的 $\lambda$ 找回来。</p>
+<div class="mount" data-mod="ch2"></div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section class="chapter" id="ch3">
+<h2><span class="n">03</span>对极几何：一个像素对应另一张图上的一条线</h2>
+<p>两个相机中心 $C_1,C_2$ 与 3D 点 $X$ 三点共面，这个平面叫<b>对极平面</b>。它与图 2 的交线就是<b>极线</b>：图 1 上的点 $x_1$ 在图 2 里的对应点必然在极线上。设相机 1 为 $[I\mid 0]$，相机 2 为 $[R\mid t]$，在归一化坐标下 $X_2=RX_1+t$，于是 $t,\,X_2,\,RX_1$ 共面：</p>
+$$x_2^\top [t]_\times R\,x_1=0\;\;\Rightarrow\;\; x_2^\top E\,x_1=0,\quad E=[t]_\times R,\qquad F=K_2^{-\top}EK_1^{-1},\quad \tilde u_2^\top F\,\tilde u_1=0 .$$
+<p>极线是 $l_2=F\tilde u_1$（即 $l_2=(a,b,c)$，满足 $au+bv+c=0$）。所有极线交于<b>极点</b> $e_2$（$C_1$ 在图 2 里的像）。$E$ 有 5 个自由度（旋转 3 + 平移方向 2，尺度不可见），$F$ 有 7 个（秩 2、尺度任意）。</p>
+<div class="mount" data-mod="ch3"></div>
+<div class="callout"><b>把握要点：</b>对极约束是<i>必要不充分</i>的——对应点在极线上，但在线上的哪个位置，要等三角化才知道。所以它能剔除一部分误匹配（离线很远的），却剔不掉沿极线方向错位的。</div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section class="chapter" id="ch4">
+<h2><span class="n">04</span>从匹配估计相对位姿：8 点法 + RANSAC</h2>
+<p><b>线性估计。</b>每个匹配 $(u_1,v_1)\leftrightarrow(u_2,v_2)$ 给 $F$ 的 9 个元素一条线性方程：</p>
+$$(u_2u_1,\;u_2v_1,\;u_2,\;v_2u_1,\;v_2v_1,\;v_2,\;u_1,\;v_1,\;1)\cdot \mathrm{vec}(F)=0 .$$
+<p>堆成 $A\,f=0$，取 $A$ 的最小右奇异向量（SVD）；再把 $F$ 的最小奇异值置 0 以强制秩 2。像素坐标量级差异大，必须先做 <b>Hartley 归一化</b>（平移到质心、平均距离缩到 $\sqrt2$），解完再反归一化。内参已知时（SfM 常见）还可以用 5 点法直接估 $E$（最少 5 对点，最多 10 个解，COLMAP 在标定情形下用它）；下面的组件用 8 点法估 $F$，再 $E=K_2^\top FK_1$ 并投影到 $(\sigma,\sigma,0)$。</p>
+<p><b>RANSAC。</b>随机抽 $s=8$ 对点求模型，数 Sampson 距离小于阈值的内点，保留内点最多的模型。需要的迭代次数 $N=\dfrac{\log(1-p)}{\log(1-w^{s})}$（$w$ 为内点率，$p$ 为置信度）：内点率 50% 时 $N\approx1177$，所以点数越少的最小解（5 点）越划算。</p>
+<p><b>分解 $E$。</b>$E=U\,\mathrm{diag}(1,1,0)\,V^\top$ 给出 4 组候选：</p>
+$$R\in\{UWV^\top,\;UW^\top V^\top\},\qquad t=\pm u_3,\qquad W=\begin{pmatrix}0&-1&0\\1&0&0\\0&0&1\end{pmatrix}.$$
+<p>四组都满足对极约束，但只有一组让三角化出的点<b>同时位于两个相机前方</b>（cheirality 检查）。另外，$(R,\lambda t,\lambda X)$ 对任意 $\lambda>0$ 产生<b>完全相同的像素</b>——单目 SfM 的尺度不可恢复，$t$ 只能取单位长度。</p>
+<div class="mount" data-mod="ch4"></div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section class="chapter" id="ch5">
+<h2><span class="n">05</span>三角化：把两条射线变成一个点</h2>
+<p>已知两个相机 $P_1,P_2$ 和一对匹配 $x_1,x_2$。无噪声时两条反投影射线恰好相交；有噪声时它们是<b>异面直线</b>，需要选一个“最好”的点。三种常见做法：</p>
+<ul>
+<li><b>中点法</b>：取两射线公垂线段的中点（几何直观，但不对应任何统计最优）。</li>
+<li><b>线性 DLT</b>：由 $\tilde x\times (P\tilde X)=0$，每个视角贡献两行 $\;u\,p_3^\top-p_1^\top,\;\;v\,p_3^\top-p_2^\top$，堆成 $A\tilde X=0$，取 $A$ 的最小右奇异向量。它最小化的是代数误差，不是像素误差。</li>
+<li><b>最小化重投影误差</b>：$\min_X\sum_i\|\pi(P_iX)-x_i\|^2$，用 Gauss-Newton/LM 从 DLT 解出发迭代。这是 BA 的“单点版”，也是最合理的目标。</li>
+</ul>
+<p><b>基线决定深度精度。</b>对平行双目，视差 $d=fB/Z$，所以 $\sigma_Z\approx\dfrac{Z^2}{fB}\sigma_d$：深度误差随距离平方增长、与基线成反比。用<b>三角化角度</b> $\theta$（两条射线的夹角）看更通用：$\theta$ 越小，两条射线越“平行”，沿射线方向的位置越不确定。COLMAP 默认丢弃 $\theta<1.5^\circ$ 的点。</p>
+<div class="mount" data-mod="ch5"></div>
+<p>注意：两视图的最优重投影误差通常<b>不为 0</b>——噪声让 $x_2$ 偏离了 $x_1$ 的极线，没有任何 3D 点能同时完美重投影到两个观测上。多视图（轨迹更长）时，误差才有冗余、能暴露误匹配。</p>
+</section>
+
+<!-- ================= 6 ================= -->
+<section class="chapter" id="ch6">
+<h2><span class="n">06</span>增量注册：新图像如何加入</h2>
+<p>有了初始点云后，新图像 $k$ 的注册是一个 <b>PnP</b> 问题：已知若干 3D 点 $X_j$ 与它们在图 $k$ 里的像素 $u_{kj}$，求 $(R_k,t_k)$。这些 2D–3D 对应来自<b>轨迹（track）</b>——同一个 3D 点在多张图像中的观测链：图 $k$ 里的某个特征若与已三角化轨迹中的特征匹配，就得到一对 2D–3D。</p>
+<p>PnP 有 6 个自由度，最少 3 个点（P3P，最多 4 个解）；实际放进 RANSAC 里用 P3P/EPnP 剔除误匹配，最后在所有内点上最小化重投影误差。下面的 Demo 用的是 6 点线性 DLT（更简单、够用）+ RANSAC + LM 精化。注册完成后，再对轨迹里新增的、被至少两张<b>已注册</b>图像看到的点做三角化（要求三角化角度、重投影误差、深度为正）；最后做一次 BA，把新旧位姿和点一起微调。</p>
+<div class="mount" data-mod="ch6"></div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section class="chapter" id="ch7">
+<h2><span class="n">07</span>光束法平差（BA）：把所有东西一起调</h2>
+<p>前面每一步都是局部最优，误差会累积。BA 把所有位姿和 3D 点放在一起，最小化整体重投影误差：</p>
+$$\min_{\{R_i,t_i\},\{X_j\}}\;\sum_{(i,j)\in\mathcal O}\rho\!\left(\big\|\pi(R_iX_j+t_i)-x_{ij}\big\|^2\right),$$
+<p>$\rho$ 是鲁棒核（如 Huber/Cauchy），压低误匹配的影响。用 Levenberg–Marquardt：$(J^\top WJ+\lambda D)\,\delta=-J^\top W r$。法方程有特殊结构：</p>
+$$\begin{pmatrix}U&W\\W^\top&V\end{pmatrix}\begin{pmatrix}\delta_c\\ \delta_p\end{pmatrix}=\begin{pmatrix}-g_c\\-g_p\end{pmatrix},\qquad S=U-WV^{-1}W^\top,\quad S\,\delta_c=-g_c+WV^{-1}g_p .$$
+<p>$V$ 是 $3\times3$ 块对角（每个点一块），求逆很便宜；消去所有点后只剩<b>相机维度</b>的约化系统 $S$（$6n_c$ 维，通常远小于 $3n_p$）。这就是 <b>Schur 补</b>。你之前看的 Spirula GPU BA 的“隐式 Schur + PCG”，就是不显式构造 $S$，而用共轭梯度（PCG）解它。<br>另外 BA 存在 7 自由度的<b>规范自由度</b>（整体相似变换：旋转 3 + 平移 3 + 尺度 1）：需要固定第一台相机的位姿，尺度靠阻尼/先验固定。本 Demo 内参固定。</p>
+<div class="mount" data-mod="ch7"></div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section class="chapter" id="ch8">
+<h2><span class="n">08</span>小结与常见失败</h2>
+<p>整条链路一句话：<b>匹配 → 对极几何（几何验证 + 相对位姿）→ 三角化出点 → PnP 注册新图 → 再三角化 → BA</b>，不断滚雪球。失败往往出在对极几何和三角化的“退化”：</p>
+<div class="mount" data-mod="ch8"></div>
+<h3 style="margin-top:28px">与 COLMAP / Spirula 概念的对照</h3>
+<table class="t">
+<tr><th>本课概念</th><th>COLMAP 中的对应</th></tr>
+<tr><td>几何验证（F/E/H + RANSAC）</td><td><code>two_view_geometries</code>：同时估计 E、F、H，判定标定/平面/纯旋转等配置</td></tr>
+<tr><td>初始化图像对</td><td><code>init_min_tri_angle</code>（默认 16°）、<code>init_min_num_inliers</code>（默认 100）</td></tr>
+<tr><td>三角化角度阈值</td><td><code>min_tri_angle</code> / <code>filter_min_tri_angle</code>（默认 1.5°）</td></tr>
+<tr><td>重投影误差过滤</td><td><code>filter_max_reproj_error</code>（默认 4 px）</td></tr>
+<tr><td>MRE（平均重投影误差）</td><td>重建统计里的 Mean reprojection error，BA 的收敛指标</td></tr>
+<tr><td>局部 / 全局 BA</td><td>注册若干图像后做局部 BA；模型增长到一定比例（默认约 10%）再做全局 BA</td></tr>
+</table>
+<p class="note">上表中的默认值取自 COLMAP 文档/源码的常见版本，不同版本可能有出入，以你使用的版本为准。</p>
+<p>全局式 SfM（如 GLOMAP、Theia）则不一张张加图：先对所有图像对估相对位姿，用旋转平均、位置平均一次性求出全局位姿，再统一三角化并做 BA；速度快，但对误匹配的相对位姿更敏感。</p>
+<h3 style="margin-top:28px">自测</h3>
+<div class="mount" data-mod="quiz"></div>
+</section>
+
+<footer class="site">Learning · SfM 交互教程第 1 课 · 3D 渲染 three.js · 公式 KaTeX · 所有数值实验为合成数据，仅作教学演示。</footer>
+</main>
+</div>
+</body>
+</html>

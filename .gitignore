@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+.vercel/
+
+# test artifacts / screenshots
+shots/
+screenshots/
+test-results/
+playwright-report/
+playwright/.cache/
+*.log
