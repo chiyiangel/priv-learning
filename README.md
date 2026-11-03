@@ -4,7 +4,7 @@
 
 站点是纯静态的 HTML + ES Modules，没有构建、没有打包。three.js 与 KaTeX 通过 jsDelivr 的 importmap / CDN 加载，浏览器直接请求仓库里的源文件。
 
-当前只有一课：SfM（从二维匹配到三维稀疏点云），放在 `sfm/triangulation/`。
+当前有一节交互课：SfM（从二维匹配到三维稀疏点云），放在 `sfm/triangulation/`；另有一套非交互的阅读笔记 `notes/spirula-sfm/`（见下）。
 
 ## 目录结构
 
@@ -29,6 +29,9 @@ sfm/triangulation/             第 1 课：从二维匹配到三维稀疏点云
     synth.js, twoview.js       合成场景与两视图数据
     incremental.js             增量式 SfM 教学实现（初始化 / 三角化 / PnP / BA）
 tests/                         node 算法测试；Playwright 浏览器检查仅本地使用
+notes/spirula-sfm/             阅读笔记系列（8 章，静态 HTML，由 tools/notes 生成）
+tools/notes/                   笔记的 Markdown 源、数据与生成脚本（见其中 README）
+assets/notes.css, notes.js     笔记专用样式与脚本（亮/暗色、目录滚动高亮、KaTeX）
 .github/workflows/test.yml     push / PR 时跑 npm test（node 20，不含浏览器检查）
 ```
 
@@ -64,6 +67,11 @@ python3 tests/browser_check.py    # 默认打开 http://localhost:8765/sfm/trian
 ```
 
 截图默认写到 `/tmp/shots`（仓库外）。若改到仓库内的 `shots/` 或 `screenshots/`，已被 `.gitignore` 忽略。GitHub Actions（`.github/workflows/test.yml`）在 push 和 pull request 上只执行 `npm test`。
+
+## 阅读笔记（非交互）
+
+按主题整理的中文阅读笔记：[Spirula · SfM 学习笔记](https://learning-nine-mauve.vercel.app/notes/spirula-sfm/)。
+源文件在 `tools/notes/src/`，用 `python3 tools/notes/build.py` 生成 HTML 后一并提交；细节见 `tools/notes/README.md`。
 
 ## 新增一节课
 

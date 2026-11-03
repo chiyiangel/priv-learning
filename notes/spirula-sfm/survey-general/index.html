@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>提升 SfM 位姿精度的方案（一）：通用方法 · Spirula · SfM 学习笔记</title>
+<meta name="description" content="按流水线阶段梳理 2016–2026 年的位姿精度方案：特征与匹配、精修与 BA、SfM 系统、先验、前馈模型、辐射场联合位姿。每个方法写明机制、验证数据集、报告增益与许可。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230d1117%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%235cc8ff%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/notes.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="/assets/notes.js"></script>
+</head>
+<body>
+<div class="progress"></div>
+<header class="nbar"><div class="in"><a class="brand" href="/">Learning<b>.</b></a><span class="sep">/</span><a class="series" href="/notes/spirula-sfm/">Spirula · SfM 学习笔记</a><span class="sp"></span><details><summary>章节 ▾</summary><nav class="menu"><a href="/notes/spirula-sfm/">总目录</a><a href="/notes/spirula-sfm/ba-gpu/"><em>1</em>全局 BA 与 GPU：Spirula、COLMAP、MegBA</a><a href="/notes/spirula-sfm/intrinsics/"><em>2</em>内参与畸变：固定焦距、同时优化畸变、鱼眼模型怎么选</a><a href="/notes/spirula-sfm/data-prep/"><em>3</em>数据准备：抽帧去糊、INSV 遥测与自备图片的接法</a><a class="on" href="/notes/spirula-sfm/survey-general/"><em>4</em>提升 SfM 位姿精度的方案（一）：通用方法</a><a href="/notes/spirula-sfm/survey-360/"><em>5</em>提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</a><a href="/notes/spirula-sfm/spirula-gap/"><em>6</em>Spirula 代码对照：位姿精度该做什么、可加哪些功能</a><a href="/notes/spirula-sfm/hilti/"><em>7</em>Hilti-Trimble-Oxford 2026：数据集与评测流程</a><a href="/notes/spirula-sfm/projects/"><em>8</em>相关项目速读：fused-zipnerf、PR #214、MRE 导出修复</a></nav></details></div></header>
+<div class="nb-layout">
+<aside class="side"><div class="h">本章目录</div><a class="l2" href="#s1">1 怎么读这一章</a><a class="l2" href="#s2">2 按阶段浏览</a><a class="l2" href="#s3">3 特征与匹配</a><a class="l2" href="#s4">4 精修 · BA · 相机模型 · 卷帘快门</a><a class="l2" href="#s5">5 SfM 系统（增量与全局）</a><a class="l2" href="#s6">6 先验：重力 / IMU / rig</a><a class="l2" href="#s7">7 前馈 / 学习式 SfM</a><a class="l2" href="#s8">8 辐射场 / 3DGS 联合位姿</a></aside>
+<article>
+<details class="toc-m"><summary>本章目录 ▾</summary><div class="side-in"><a class="l2" href="#s1">1 怎么读这一章</a><a class="l2" href="#s2">2 按阶段浏览</a><a class="l2" href="#s3">3 特征与匹配</a><a class="l2" href="#s4">4 精修 · BA · 相机模型 · 卷帘快门</a><a class="l2" href="#s5">5 SfM 系统（增量与全局）</a><a class="l2" href="#s6">6 先验：重力 / IMU / rig</a><a class="l2" href="#s7">7 前馈 / 学习式 SfM</a><a class="l2" href="#s8">8 辐射场 / 3DGS 联合位姿</a></div></details>
+<p class="eyebrow">第 4 章 / 共 8 章</p>
+<h1>提升 SfM 位姿精度的方案（一）：通用方法</h1>
+<p class="meta">调研日期：2026-11-02。每条的机制、验证、增益、代码许可转述自论文摘要、仓库或 changelog；数字只引自所读原文，“推断”为调研者的判断。</p>
+<div class="tldr"><p class="ct">本章要点</p><p><strong>对双鱼眼视频，收益证据最强的是把成像建模对</strong>：保持原始双鱼眼为刚性 rig，不用拼接后的等距柱状图；其次是用起 <code>.insv</code> 里的陀螺和加速度计。</p>
+<p><strong>基础设施也在变</strong>：COLMAP 4.x 已并入 GLOMAP，新增球面与 EUCM 相机、GPU BA、重力先验和 LightGlue。</p>
+<p><strong>阅读提示</strong>：多数方法的“报告增益”只来自摘要，摘要没给数字就写“未给数字”。重力对齐旋转平均、CamP、GS-SMC 等的数据集都不是 360，不能直接外推。</p></div>
+<h2 id="s1">1　怎么读这一章</h2>
+<p>约有 60 个方法分在两章：本章是通用 SfM 的六个阶段，下一章是 360 / 全向 / 鱼眼专项。每个方法一张卡片：</p>
+<ul>
+<li><strong>标签</strong>：“通用”表示不针对 360，“360 / 鱼眼”表示专为或明确适用于 360 / 鱼眼，“部分适用”表示有一部分可迁移。</li>
+<li><strong>验证 / 报告增益</strong>：只写来源原文中出现的内容。没有数字的地方没有补。</li>
+<li><strong>推断 / 备注</strong>：紫色“推断”是调研者自己的判断，不是来源所述。</li>
+</ul>
+<div class="callout warn">
+<p class="ct">证据边界</p>
+<ul>
+<li>多数通用方法的“报告增益”只来自摘要，没有补读正文表格。</li>
+<li>VGGT、π³、MapAnything 等的具体位姿指标（如 AUC）没有逐篇读正文，所以未写入。</li>
+<li>许可证以仓库当前 LICENSE 为准，标“未核实”的项目没有逐条确认。</li>
+</ul>
+</div>
+<h2 id="s2">2　按阶段浏览</h2>
+<p>下表给出每个阶段的“一句话结论”，卡片在后面。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>特征与匹配</td>
+<td>若当前用 SIFT 一类传统特征，换成 ALIKED / DISK + LightGlue 是投入最小的升级（推断）；稠密匹配（RoMa、MASt3R）为针孔图像训练，鱼眼更稳妥的做法是先切成针孔切片（推断）</td>
+</tr>
+<tr>
+<td>精修 · BA · 相机模型 · 卷帘</td>
+<td>模型是否贴合镜头直接决定边缘残差；特征度量精修（Pixel-Perfect）提升亚像素精度；COLMAP 3.10–4.2.1 的 changelog 里检索不到卷帘模型，两篇卷帘 BA 论文的代码许可均未核实</td>
+</tr>
+<tr>
+<td>SfM 系统</td>
+<td>COLMAP 4.x 已吸收 GLOMAP 全局 SfM、球面 / EUCM 相机、GPU BA 与重力先验</td>
+</tr>
+<tr>
+<td>先验</td>
+<td>重力对齐旋转平均与 rig 约束，是 IMU 先验里最“即插即用”的</td>
+</tr>
+<tr>
+<td>前馈 / 学习式</td>
+<td>训练域是针孔图像；更适合作初始化或粗检，不是最终位姿</td>
+</tr>
+<tr>
+<td>辐射场 / 3DGS 联合位姿</td>
+<td>位姿与场景一起优化，收益可观，但“更准的渲染”不等于“更准的位姿”</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s3">3　特征与匹配</h2>
+<article class="m"><h4>LightGlue <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">自适应深度的稀疏匹配器</p><p>SuperGlue 的改进版：按图像对的难易程度自适应推理，容易匹配的对更早退出；可搭配 SuperPoint、ALIKED、DISK 等局部特征。COLMAP 4.0 已内置 ALIKED + LightGlue（ONNX）匹配。</p><dl><dt>验证</dt><dd>摘要未列评测集（未核实）</dd><dt>报告增益</dt><dd>摘要称更快、更省内存、更准，未给数字</dd><dt>代码 / 许可</dt><dd>cvg/LightGlue · Apache-2.0<br><a href="https://arxiv.org/abs/2306.13643" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2306.13643</a></dd></dl><div class="infer"><b>推断</b>若当前用的是 SIFT 一类传统特征，换成 ALIKED/DISK + LightGlue 是投入最小的匹配升级；鱼眼边缘畸变大，更稳妥的做法是在去畸变后的针孔切片上匹配。</div></article>
+<article class="m"><h4>ALIKED <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">可变形描述子头，轻量关键点</p><p>用稀疏可变形描述子头（SDDH）在关键点处提取描述子，并把神经重投影误差（NRE）损失从稠密放宽到稀疏来训练。</p><dl><dt>验证</dt><dd>摘要：图像匹配、三维重建、视觉重定位（具体数据集未核实）</dd><dt>报告增益</dt><dd>摘要称高效且强，未给数字</dd><dt>代码 / 许可</dt><dd>Shiaoming/ALIKED · BSD-3-Clause<br><a href="https://arxiv.org/abs/2304.03608" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2304.03608</a></dd></dl><div class="infer"><b>推断</b>COLMAP 4.0 changelog 已集成，可直接作为 SIFT 的替代。</div></article>
+<article class="m"><h4>DISK <span class="yr">2020</span> <span class="tag">通用</span></h4><p class="one">强化学习训练的关键点</p><p>用策略梯度（强化学习）端到端优化“正确匹配数量”，绕开关键点选择与匹配的离散性；可以非常稠密地提取特征。</p><dl><dt>验证</dt><dd>摘要：三个公开基准（名称未核实）</dd><dt>报告增益</dt><dd>摘要称在三个基准上 SOTA，未给数字</dd><dt>代码 / 许可</dt><dd>cvlab-epfl/disk · Apache-2.0<br><a href="https://arxiv.org/abs/2006.13566" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2006.13566</a></dd></dl></article>
+<article class="m"><h4>RoMa <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">DINOv2 稠密匹配</p><p>冻结 DINOv2 的粗特征加 ConvNet 精细特征组成可精确定位的特征金字塔；Transformer 匹配解码器预测锚点概率以表达多峰分布；损失采用“回归式分类 + 鲁棒回归”。</p><dl><dt>验证</dt><dd>WxBS 等（摘要点名 WxBS）</dd><dt>报告增益</dt><dd>WxBS 基准提升 36%（摘要）</dd><dt>代码 / 许可</dt><dd>Parskatt/RoMa · MIT<br><a href="https://arxiv.org/abs/2305.15404" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2305.15404</a></dd></dl><div class="infer"><b>推断</b>RoMa 为针孔图像训练，直接喂鱼眼会掉点；IM360 的实验里 DKM（同作者前作）在立方体贴图上可用，但配准数量落后于球面稠密匹配方案。</div></article>
+<article class="m"><h4>MASt3R（匹配） <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">在 DUSt3R 上加稠密特征头，把匹配当 3D 任务</p><p>给 DUSt3R 增加输出稠密局部特征的头并用匹配损失训练，再用快速互惠匹配把稠密匹配的复杂度降下来。</p><dl><dt>验证</dt><dd>Map-free 定位数据集（摘要）</dd><dt>报告增益</dt><dd>Map-free 数据集 VCRE AUC 上比此前最佳发表方法高 30%（绝对值，摘要）</dd><dt>代码 / 许可</dt><dd>naver/mast3r · CC BY-NC-SA 4.0（非商用）<br><a href="https://arxiv.org/abs/2406.09756" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2406.09756</a></dd></dl></article>
+<h2 id="s4">4　精修 · BA · 相机模型 · 卷帘快门</h2>
+<article class="m"><h4>DetectorFreeSfM <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">无检测器匹配 + 迭代轨迹/几何精修</p><p>先用量化后的无检测器匹配重建粗 SfM 模型，再迭代两个模块：基于注意力的多视角匹配模块精修特征轨迹，几何精修模块提高重建精度，解决无检测器匹配多视角不一致的问题。</p><dl><dt>验证</dt><dd>常见 SfM 基准 + 作者采集的纹理缺乏数据集（摘要）</dd><dt>报告增益</dt><dd>摘要称优于检测器式 SfM，并获 Image Matching Challenge 2023 第一名；未给数字</dd><dt>代码 / 许可</dt><dd>zju3dv/DetectorFreeSfM · ZJU 自定义 PRL v1.0 许可（见仓库）<br><a href="https://arxiv.org/abs/2306.15669" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2306.15669</a></dd></dl><div class="infer"><b>推断</b>“量化 + 合并”的无检测器 SfM 范式已被 IM360 用在球面稠密匹配上，是把稠密匹配接进 SfM 的现成路线。</div></article>
+<article class="m"><h4>Pixel-Perfect SfM <span class="yr">2021</span> <span class="tag">通用</span></h4><p class="one">特征度量（featuremetric）关键点调整 + BA 后处理</p><p>两步：几何估计之前先用多视角稠密特征对关键点位置做直接对齐；SfM 之后再用特征度量误差精修三维点和相机位姿。作为 COLMAP 的附加组件。</p><dl><dt>验证</dt><dd>摘要：多种检测器、困难视角条件（具体数据集未核实）</dd><dt>报告增益</dt><dd>摘要称显著提升位姿与几何精度，未给数字</dd><dt>代码 / 许可</dt><dd>cvg/pixel-perfect-sfm · Apache-2.0<br><a href="https://arxiv.org/abs/2108.08291" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2108.08291</a></dd></dl><div class="infer"><b>推断</b>对鱼眼需把稠密特征图的采样改成鱼眼投影，属于自行适配；收益是亚像素定位更准，对长序列尺度漂移无直接作用。</div></article>
+<article class="m"><h4>Double Sphere 相机模型 <span class="yr">2018</span> <span class="tag t360">360 / 鱼眼</span></h4><p class="one">大视场镜头的双球模型，反投影闭式解</p><p>综述了大视场相机模型，提出计算便宜、反投影有闭式解的 Double Sphere 模型，并用重投影误差和投影/反投影及其雅可比的耗时来比较模型。</p><dl><dt>验证</dt><dd>含多种镜头的标定数据集（摘要）</dd><dt>报告增益</dt><dd>摘要未给数字</dd><dt>代码 / 许可</dt><dd>论文无独立仓库（未核实）<br><a href="https://arxiv.org/abs/1807.08957" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/1807.08957</a></dd></dl><div class="infer"><b>推断</b>标定模型是否贴合镜头直接决定 BA 边缘残差；Insta360 镜头可对比 equidistant-多项式、EUCM、DS 的重投影误差再选。</div></article>
+<article class="m"><h4>EUCM 增强统一相机模型 <span class="yr">2016</span> <span class="tag t360">360 / 鱼眼</span></h4><p class="one">鱼眼 / 折反射的两参数畸变模型</p><p>COLMAP 4.1.0 起新增 EUCM；其相机模型文档称：在标准针孔参数之外用两个参数表示径向畸变，适用于广角鱼眼与折反射相机。论文原文摘要未逐条核实。</p><dl><dt>验证</dt><dd>—（模型论文；数据集未核实）</dd><dt>报告增益</dt><dd>未核实</dd><dt>代码 / 许可</dt><dd>COLMAP 4.1+ 内置（BSD）<br><a href="https://doi.org/10.1109/lra.2015.2502921" target="_blank" rel="noopener" target="_blank" rel="noopener">doi.org/10.1109/lra.2015.2502921</a></dd></dl><div class="infer"><b>推断</b>可作为 Spirula 现有鱼眼模型的对照候选。</div></article>
+<article class="m"><h4>Kannala-Brandt 通用模型 <span class="yr">2006</span> <span class="tag t360">360 / 鱼眼</span></h4><p class="one">等距多项式鱼眼模型 + 标定方法</p><p>对常规、广角、鱼眼镜头给出统一的通用相机模型与标定方法。OVR 的 Insta360 SfM 论文即采用“equidistant 鱼眼模型”并引用此文；OpenSfM 的 fisheye 模型为 θ 的 k1、k2 多项式。</p><dl><dt>验证</dt><dd>—（经典模型论文）</dd><dt>报告增益</dt><dd>—</dd><dt>代码 / 许可</dt><dd>OpenCV / COLMAP / OpenSfM 均有同类模型<br><a href="https://doi.org/10.1109/tpami.2006.153" target="_blank" rel="noopener" target="_blank" rel="noopener">doi.org/10.1109/tpami.2006.153</a></dd></dl><div class="infer plain"><b>备注</b>OVR 论文发现：该畸变模型在偏离光轴 50° 以外会让标记点三角化尺寸偏差“数个百分点”，因此他们只用 50° 内的视图。可见边缘模型误差是实际问题。</div></article>
+<article class="m"><h4>NW-RSBA 卷帘快门 BA <span class="yr">2022</span> <span class="tag">通用</span></h4><p class="one">归一化 + 协方差加权的卷帘 BA</p><p>研究图像点归一化对卷帘 BA 的影响，并给出视觉残差协方差的解析模型来标准化重投影误差；两者结合可避免常见的平面退化，且能插入全局快门 SfM/SLAM 系统。</p><dl><dt>验证</dt><dd>合成与真实数据（摘要，未点名）</dd><dt>报告增益</dt><dd>摘要称优于现有工作，未给数字</dd><dt>代码 / 许可</dt><dd>未核实<br><a href="https://arxiv.org/abs/2209.08503" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2209.08503</a></dd></dl><div class="infer"><b>推断</b>COLMAP 3.10–4.2.1 的 changelog 中检索不到卷帘模型；Insta360 是否存在可测的卷帘效应需自己做标定实验判断（未核实）。</div></article>
+<article class="m"><h4>RSL-BA 卷帘线特征 BA <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">Plücker 线参数化的卷帘 BA</p><p>首个基于线特征的卷帘快门 BA：建立卷帘线投影理论，推导稳定的重投影误差，并证明可避免三种常见退化。</p><dl><dt>验证</dt><dd>合成与真实数据（摘要）</dd><dt>报告增益</dt><dd>精度与点特征 RSBA 相当（摘要）</dd><dt>代码 / 许可</dt><dd>未核实<br><a href="https://arxiv.org/abs/2408.05409" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2408.05409</a></dd></dl></article>
+<div class="callout note">
+<p class="ct">关于鲁棒核与自标定</p>
+<p>IM360 的球面 BA 在局部阶段用 soft-L1、全局阶段不加鲁棒核；COLMAP 4.0 changelog 提示：全局 mapper 用视图图标定从两视图几何估计内参，可能与增量式自标定结果不同。除此之外，没有为“不确定性加权 BA”单独找到足够可靠的来源，所以不列入。</p>
+</div>
+<h2 id="s5">5　SfM 系统（增量与全局）</h2>
+<article class="m"><h4>COLMAP（SfM Revisited） <span class="yr">2016</span> <span class="tag">通用</span></h4><p class="one">增量 SfM 标杆</p><p>增量式 SfM：特征匹配、几何验证、增量注册、三角化与 BA；本文多数方法的对比基线。</p><dl><dt>验证</dt><dd>—（经典系统）</dd><dt>报告增益</dt><dd>—</dd><dt>代码 / 许可</dt><dd>colmap/colmap · BSD<br><a href="https://openaccess.thecvf.com/content_cvpr_2016/html/Schonberger_Structure-From-Motion_Revisited_CVPR_2016_paper.html" target="_blank" rel="noopener" target="_blank" rel="noopener">openaccess.thecvf.com/content_cvpr_2016/html/Schonberger_Structure-Fro</a></dd></dl></article>
+<article class="m"><h4>COLMAP 4.x 近期更新 <span class="yr">2026</span> <span class="tag tpart">部分适用</span></h4><p class="one">吸收 GLOMAP、球面/EUCM、GPU BA、LightGlue</p><p>changelog：4.0.0（2026-03-14）并入 GLOMAP 全局 SfM、增加 ALIKED/LightGlue ONNX、FISHEYE 模型；4.1.0（2026-06-26）增加球面（等距柱状）相机模型、EUCM、Caspar GPU BA、EXIF 重力先验；4.2.0（2026-08-31）把角度 Sampson 误差改为像素一致的切向 Sampson 误差，并估计射线上的单应，changelog 称这对广角与球面相机尤其有益。</p><dl><dt>验证</dt><dd>COLMAP 基准含 TartanAir 全景、IMC2025 等（4.2.0 changelog）</dd><dt>报告增益</dt><dd>Caspar：changelog 称对中大规模问题常比 Ceres CUDA 后端快 1–2 个数量级；球面相机模型：changelog 称“通常比渲染透视视图更快，但精度更低”</dd><dt>代码 / 许可</dt><dd>colmap/colmap · new BSD<br><a href="https://colmap.github.io/changelog.html" target="_blank" rel="noopener" target="_blank" rel="noopener">colmap.github.io/changelog.html</a></dd></dl><div class="infer"><b>推断</b>对双鱼眼更推荐 rig + 鱼眼/针孔切片路线而非直接用球面模型，原因正是上面 changelog 自述的精度差；4.0 的全局 mapper 用视图图标定估计内参，可能与增量式自标定结果不同（changelog 提示）。</div></article>
+<article class="m"><h4>GLOMAP <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">全局 SfM（旋转平均 + 全局定位 + 全局 BA）</p><p>重新审视全局 SfM：精度和鲁棒性与 COLMAP 持平或更好，速度快几个数量级。该仓库已存档，代码并入 COLMAP 4.0。</p><dl><dt>验证</dt><dd>摘要未点名数据集（未核实）</dd><dt>报告增益</dt><dd>摘要称“与 COLMAP 持平或更优”，快“几个数量级”，未给具体数字</dd><dt>代码 / 许可</dt><dd>colmap/glomap · BSD-3-Clause（已存档）<br><a href="https://arxiv.org/abs/2407.20219" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2407.20219</a></dd></dl></article>
+<article class="m"><h4>Theia <span class="yr">2015</span> <span class="tag">通用</span></h4><p class="one">经典全局 SfM 库</p><p>Sweeney 的多视几何库，含全局 SfM；被 IM360 论文列为 SfM 代表之一。</p><dl><dt>验证</dt><dd>—</dd><dt>报告增益</dt><dd>—</dd><dt>代码 / 许可</dt><dd>sweeneychris/TheiaSfM · BSD 类（license.txt）<br><a href="https://github.com/sweeneychris/TheiaSfM" target="_blank" rel="noopener" target="_blank" rel="noopener">github.com/sweeneychris/TheiaSfM</a></dd></dl></article>
+<h2 id="s6">6　先验：重力 / IMU / rig</h2>
+<article class="m"><h4>重力对齐旋转平均 <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">把重力方向并入旋转平均（圆回归）</p><p>在全局 SfM 的旋转平均阶段引入重力方向，提升相机朝向精度并减少自由度；基于圆回归，支持只有部分相机有重力，并提供精修易错重力的机制。</p><dl><dt>验证</dt><dd>四个大规模数据集（摘要未点名）</dd><dt>报告增益</dt><dd>比 SfM 基线平均高 13 个 AUC@1° 点，且快 8 倍；比标准平面位姿图优化高 23 个 AUC@1° 点（摘要）</dd><dt>代码 / 许可</dt><dd>colmap/glomap（已并入 COLMAP）<br><a href="https://arxiv.org/abs/2410.12763" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2410.12763</a></dd></dl><div class="infer"><b>推断</b>Insta360 的陀螺 + 加速度计可算出每帧重力方向，正好是这个方法的输入，是 IMU 先验里最“即插即用”的一项。</div></article>
+<article class="m"><h4>COLMAP rig 与位姿先验 <span class="yr">2025</span> <span class="tag t360">360 / 鱼眼</span></h4><p class="one">rig 约束 BA + 位姿/重力先验</p><p>COLMAP 3.12 引入 rig 与 frame（sensor_from_world = sensor_from_rig × rig_from_world）；3.13 可用 <code>--Mapper.ba_refine_sensor_from_rig 0</code> 固定已标定的相对位姿；4.x 系列持续修复 rig 下位姿先验的对齐、尺度与 BA 改变常量 rig 位姿等问题。</p><dl><dt>验证</dt><dd>—</dd><dt>报告增益</dt><dd>未给数字</dd><dt>代码 / 许可</dt><dd>colmap/colmap · BSD<br><a href="https://colmap.github.io/rigs.html" target="_blank" rel="noopener" target="_blank" rel="noopener">colmap.github.io/rigs.html</a></dd></dl><div class="infer"><b>推断</b>双鱼眼本质是刚性两镜头 rig，是否固定/精修 rig 外参是首要开关。OVR 论文的生产管线就是“两镜头 rig 约束 BA”。</div></article>
+<h2 id="s7">7　前馈 / 学习式 SfM</h2>
+<article class="m"><h4>VGGSfM <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">全可微 SfM：点跟踪 + 同时求相机 + 可微 BA</p><p>用深度点跟踪得到像素级轨迹，不再链接成对匹配；同时恢复所有相机而不是逐个注册；最后用可微 BA 层优化相机与三角化。</p><dl><dt>验证</dt><dd>CO3D、IMC PhotoTourism、ETH3D（摘要）</dd><dt>报告增益</dt><dd>三个数据集上 SOTA（摘要，未给数字）</dd><dt>代码 / 许可</dt><dd>facebookresearch/vggsfm · CC BY-NC 4.0（非商用）<br><a href="https://arxiv.org/abs/2312.04563" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2312.04563</a></dd></dl></article>
+<article class="m"><h4>DUSt3R <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">成对点图回归 + 全局对齐</p><p>把成对重建当作点图回归，免标定免位姿；多图时用简单的全局对齐把所有点图放到同一坐标系，可由点图恢复匹配、相对与绝对位姿。</p><dl><dt>验证</dt><dd>单目/多视深度、相对位姿等任务（摘要）</dd><dt>报告增益</dt><dd>摘要称在单目/多视深度与相对位姿上刷新 SOTA，未给数字</dd><dt>代码 / 许可</dt><dd>naver/dust3r · CC BY-NC-SA 4.0（非商用）<br><a href="https://arxiv.org/abs/2312.14132" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2312.14132</a></dd></dl></article>
+<article class="m"><h4>MASt3R-SfM <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">低内存的局部重建全局对齐 + 线性检索</p><p>基于 MASt3R 产生局部三维重建与准确匹配，用低内存方案把它们对齐到全局坐标；同一基础模型兼作图像检索器，把复杂度从二次降到线性。</p><dl><dt>验证</dt><dd>多个基准（摘要未点名）</dd><dt>报告增益</dt><dd>摘要称在中小规模场景尤其优于现有方法，未给数字</dd><dt>代码 / 许可</dt><dd>naver/mast3r · CC BY-NC-SA 4.0<br><a href="https://arxiv.org/abs/2409.19152" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2409.19152</a></dd></dl></article>
+<article class="m"><h4>Light3R-SfM <span class="yr">2025</span> <span class="tag">通用</span></h4><p class="one">前馈、可学习的潜空间全局对齐</p><p>用可学习的注意力模块（潜空间全局对齐）替代传统全局优化，并用检索得分引导的最短路径树构建稀疏场景图以降低显存。</p><dl><dt>验证</dt><dd>摘要未点名</dd><dt>报告增益</dt><dd>摘要称精度有竞争力且显著降低运行时间，未给数字</dd><dt>代码 / 许可</dt><dd>未核实<br><a href="https://arxiv.org/abs/2501.14914" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2501.14914</a></dd></dl></article>
+<article class="m"><h4>VGGT <span class="yr">2025</span> <span class="tag">通用</span></h4><p class="one">前馈直接输出相机/点图/深度/轨迹</p><p>一个前馈网络从一张到数百张图像里直接推出相机参数、点图、深度和 3D 点轨迹；不到一秒完成，并超过需要后处理优化的方案。</p><dl><dt>验证</dt><dd>相机参数估计、多视深度等任务（摘要）</dd><dt>报告增益</dt><dd>摘要称多项任务 SOTA，未给数字</dd><dt>代码 / 许可</dt><dd>facebookresearch/vggt · VGGT License v1（自定义，见仓库）<br><a href="https://arxiv.org/abs/2503.11651" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2503.11651</a></dd></dl><div class="infer"><b>推断</b>训练域为针孔图像，对双鱼眼应先切成针孔视图；更适合作初始化或粗检，不是最终位姿。</div></article>
+<article class="m"><h4>π³ <span class="yr">2025</span> <span class="tag">通用</span></h4><p class="one">排列等变的视觉几何网络</p><p>完全排列等变架构，预测仿射不变相机位姿与尺度不变局部点图，摆脱对固定参考视图的依赖，对输入顺序鲁棒。</p><dl><dt>验证</dt><dd>相机位姿、深度、点图重建（摘要）</dd><dt>报告增益</dt><dd>摘要称多任务 SOTA，未给数字</dd><dt>代码 / 许可</dt><dd>yyfz/Pi3 · BSD-3-Clause<br><a href="https://arxiv.org/abs/2507.13347" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2507.13347</a></dd></dl></article>
+<article class="m"><h4>MapAnything <span class="yr">2025</span> <span class="tag">通用</span></h4><p class="one">可吃内参/位姿/深度等可选输入的前馈度量重建</p><p>统一的前馈 Transformer，接收一张或多张图像以及可选的几何输入（内参、位姿、深度、部分重建），直接回归度量尺度的三维几何与相机。</p><dl><dt>验证</dt><dd>摘要未点名</dd><dt>报告增益</dt><dd>摘要未给数字</dd><dt>代码 / 许可</dt><dd>facebookresearch/map-anything · Apache-2.0<br><a href="https://arxiv.org/abs/2509.13414" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2509.13414</a></dd></dl><div class="infer"><b>推断</b>能吃已知内参/位姿，理论上可把 rig 外参或陀螺旋转当条件输入；是否支持鱼眼未核实。</div></article>
+<article class="m"><h4>ACE0（场景坐标回归 SfM） <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">增量学习重定位器来定姿</p><p>把增量 SfM 重新解释为迭代地应用并精修视觉重定位器，用场景坐标回归建立隐式神经场景表示；无需位姿先验与序列输入，可处理上千张图。</p><dl><dt>验证</dt><dd>以新视角合成质量衡量位姿（摘要）</dd><dt>报告增益</dt><dd>许多情形下位姿精度接近基于特征的 SfM（摘要）</dd><dt>代码 / 许可</dt><dd>nianticlabs/acezero · Niantic 自定义许可（见仓库）<br><a href="https://arxiv.org/abs/2404.14351" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2404.14351</a></dd></dl></article>
+<article class="m"><h4>MASt3R-SLAM <span class="yr">2024</span> <span class="tag tpart">部分适用</span></h4><p class="one">基于 MASt3R 先验的实时稠密 SLAM</p><p>自底向上围绕 MASt3R 构建：点图匹配、跟踪与局部融合、图构建与回环、二阶全局优化；除“唯一相机中心”外不假设固定或参数化相机模型。</p><dl><dt>验证</dt><dd>多个基准（摘要，已知标定时 SOTA）</dd><dt>报告增益</dt><dd>已知标定时达 SOTA，15 FPS（摘要）</dd><dt>代码 / 许可</dt><dd>rmurai0610/MASt3R-SLAM · CC BY-NC-SA 4.0<br><a href="https://arxiv.org/abs/2412.12392" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2412.12392</a></dd></dl></article>
+<h2 id="s8">8　辐射场 / 3DGS 联合位姿</h2>
+<article class="m"><h4>BARF <span class="yr">2021</span> <span class="tag">通用</span></h4><p class="one">位姿不准或未知时联合训练 NeRF 与位姿</p><p>建立与经典图像对齐的理论联系，说明朴素的位姿联合优化为何困难，以此设计 NeRF 的联合配准训练。</p><dl><dt>验证</dt><dd>摘要未点名（未核实）</dd><dt>报告增益</dt><dd>摘要未给数字</dd><dt>代码 / 许可</dt><dd>chenhsuanlin/bundle-adjusting-NeRF · MIT<br><a href="https://arxiv.org/abs/2104.06405" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2104.06405</a></dd></dl></article>
+<article class="m"><h4>CamP 相机预条件 <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">对相机参数做白化预条件，改善联合优化条件数</p><p>分析相机参数化对联合优化的影响：标准参数化对小扰动的敏感度量级差很大，导致病态；用代理问题计算白化变换并将其作为相机参数的预条件。</p><dl><dt>验证</dt><dd>Mip-NeRF 360（摘要）</dd><dt>报告增益</dt><dd>相对不优化相机的 Zip-NeRF，RMSE 降低 67%；相对 SCNeRF 参数化的联合优化，降低 29%（摘要）</dd><dt>代码 / 许可</dt><dd>jonbarron/camp_zipnerf · Apache-2.0<br><a href="https://arxiv.org/abs/2308.10902" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2308.10902</a></dd></dl><div class="infer"><b>推断</b>预条件思想可迁移到 3DGS 中同时优化位姿、内参、rig 外参的场景，因这几类参数量级差别很大。</div></article>
+<article class="m"><h4>COLMAP-Free 3DGS (CF-3DGS) <span class="yr">2023</span> <span class="tag">通用</span></h4><p class="one">按帧顺序渐进增长高斯并估计位姿</p><p>利用显式点云表示与视频的连续性，逐帧处理输入、逐步增长 3D 高斯集合，无需预先 SfM 位姿。</p><dl><dt>验证</dt><dd>摘要未点名</dd><dt>报告增益</dt><dd>大运动下的新视角合成与位姿估计显著优于此前方法（摘要，未给数字）</dd><dt>代码 / 许可</dt><dd>NVlabs/CF-3DGS · NVIDIA 源码许可（见仓库）<br><a href="https://arxiv.org/abs/2312.07504" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2312.07504</a></dd></dl></article>
+<article class="m"><h4>InstantSplat <span class="yr">2024</span> <span class="tag">通用</span></h4><p class="one">几何基础模型初始化 + 高斯式 BA，稀疏视角</p><p>用大规模训练的几何基础模型给出稠密先验与初始点，再用共视性几何初始化和基于高斯的 BA 同时快速调整场景与相机参数，不依赖复杂的自适应密度控制。</p><dl><dt>验证</dt><dd>稀疏视角场景（摘要）</dd><dt>报告增益</dt><dd>重建加速超过 30 倍，SSIM 由 0.3755 提升到 0.7624（对比传统 SfM + 3D-GS，摘要）</dd><dt>代码 / 许可</dt><dd>NVlabs/InstantSplat · Apache-2.0<br><a href="https://arxiv.org/abs/2403.20309" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2403.20309</a></dd></dl></article>
+<article class="m"><h4>GS-SMC（用 3DGS 精修位姿） <span class="yr">2025</span> <span class="tag">通用</span></h4><p class="one">渲染新视图 + 对极约束迭代精修位姿</p><p>利用现成 3DGS 模型渲染新视图，再用查询图与多张渲染图之间的对极几何约束迭代精修相机位姿，特征提取器与匹配器可任选，无需额外训练。</p><dl><dt>验证</dt><dd>7-Scenes、Cambridge Landmarks（摘要）</dd><dt>报告增益</dt><dd>7-Scenes 中位平移/旋转误差降低 53.3% / 56.9%；Cambridge 降低 40.7% / 53.2%（摘要）</dd><dt>代码 / 许可</dt><dd>未核实<br><a href="https://arxiv.org/abs/2508.17876" target="_blank" rel="noopener" target="_blank" rel="noopener">arxiv.org/abs/2508.17876</a></dd></dl><div class="infer"><b>推断</b>用已训练好的 3DGS 反过来校位姿，对 Spirula 的“SfM → 3DGS”顺序是个可闭环的后处理；该文是定位/重定位设定，不是整段 SfM。</div></article>
+<nav class="pn"><a href="/notes/spirula-sfm/data-prep/"><small>← 上一章</small>3　数据准备：抽帧去糊、INSV 遥测与自备图片的接法</a><a class="next" href="/notes/spirula-sfm/survey-360/"><small>下一章 →</small>5　提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</a></nav>
+</article>
+</div>
+<footer class="nf">Learning · Spirula · SfM 学习笔记 · 内容整理自 2026 年 10–11 月关于 spirula-studio / SfM / 3DGS 的技术问答与两份调研；凡标注「推断」「未核实」的内容请勿当作定论。</footer>
+</body>
+</html>

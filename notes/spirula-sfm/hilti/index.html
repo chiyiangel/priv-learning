@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Hilti-Trimble-Oxford 2026：数据集与评测流程 · Spirula · SfM 学习笔记</title>
+<meta name="description" content="一套公开的 Insta360 双鱼眼加 IMU 数据集，真值来自 LiDAR-惯性 SLAM。怎么下载、怎么提交、怎么打分，以及拿它评估 SfM 时要注意什么。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230d1117%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%235cc8ff%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/notes.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="/assets/notes.js"></script>
+</head>
+<body>
+<div class="progress"></div>
+<header class="nbar"><div class="in"><a class="brand" href="/">Learning<b>.</b></a><span class="sep">/</span><a class="series" href="/notes/spirula-sfm/">Spirula · SfM 学习笔记</a><span class="sp"></span><details><summary>章节 ▾</summary><nav class="menu"><a href="/notes/spirula-sfm/">总目录</a><a href="/notes/spirula-sfm/ba-gpu/"><em>1</em>全局 BA 与 GPU：Spirula、COLMAP、MegBA</a><a href="/notes/spirula-sfm/intrinsics/"><em>2</em>内参与畸变：固定焦距、同时优化畸变、鱼眼模型怎么选</a><a href="/notes/spirula-sfm/data-prep/"><em>3</em>数据准备：抽帧去糊、INSV 遥测与自备图片的接法</a><a href="/notes/spirula-sfm/survey-general/"><em>4</em>提升 SfM 位姿精度的方案（一）：通用方法</a><a href="/notes/spirula-sfm/survey-360/"><em>5</em>提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</a><a href="/notes/spirula-sfm/spirula-gap/"><em>6</em>Spirula 代码对照：位姿精度该做什么、可加哪些功能</a><a class="on" href="/notes/spirula-sfm/hilti/"><em>7</em>Hilti-Trimble-Oxford 2026：数据集与评测流程</a><a href="/notes/spirula-sfm/projects/"><em>8</em>相关项目速读：fused-zipnerf、PR #214、MRE 导出修复</a></nav></details></div></header>
+<div class="nb-layout">
+<aside class="side"><div class="h">本章目录</div><a class="l2" href="#s1">1 这是什么</a><a class="l2" href="#s2">2 数据内容</a><a class="l3" href="#s3">2.1 传感器</a><a class="l3" href="#s4">2.2 ROS 2 bag 里有什么</a><a class="l3" href="#s5">2.3 标定</a><a class="l3" href="#s6">2.4 真值怎么来的</a><a class="l2" href="#s7">3 评测流程</a><a class="l3" href="#s8">3.1 五步走</a><a class="l3" href="#s9">3.2 哪些段计分</a><a class="l2" href="#s10">4 打分规则</a><a class="l2" href="#s11">5 拿来评估 Spirula 要注意什么</a><a class="l3" href="#s12">5.1 不提交也能测</a><a class="l3" href="#s13">5.2 许可提醒</a><a class="l3" href="#s14">5.3 参考：冠军方案</a></aside>
+<article>
+<details class="toc-m"><summary>本章目录 ▾</summary><div class="side-in"><a class="l2" href="#s1">1 这是什么</a><a class="l2" href="#s2">2 数据内容</a><a class="l3" href="#s3">2.1 传感器</a><a class="l3" href="#s4">2.2 ROS 2 bag 里有什么</a><a class="l3" href="#s5">2.3 标定</a><a class="l3" href="#s6">2.4 真值怎么来的</a><a class="l2" href="#s7">3 评测流程</a><a class="l3" href="#s8">3.1 五步走</a><a class="l3" href="#s9">3.2 哪些段计分</a><a class="l2" href="#s10">4 打分规则</a><a class="l2" href="#s11">5 拿来评估 Spirula 要注意什么</a><a class="l3" href="#s12">5.1 不提交也能测</a><a class="l3" href="#s13">5.2 许可提醒</a><a class="l3" href="#s14">5.3 参考：冠军方案</a></div></details>
+<p class="eyebrow">第 7 章 / 共 8 章</p>
+<h1>Hilti-Trimble-Oxford 2026：数据集与评测流程</h1>
+<p class="meta">依据：挑战赛官方仓库文档（docs/）与调研。评测服务器规则以官网为准；本章没有实际提交过任何结果。</p>
+<div class="tldr"><p class="ct">本章要点</p><p><strong>它是公开数据集</strong>，由 Hilti、Trimble 与牛津大学 Dynamic Robot Systems 组为 2026 年 SLAM 挑战赛采集，场景是正在施工的室内工地。设备与 Spirula 的目标场景几乎一样：Insta360 One RS 1-Inch 360 版，原始双鱼眼加 1000 Hz IMU。</p>
+<p><strong>流程不涉及“训练”</strong>：用你自己的方法对每段数据估计相机轨迹，提交 TUM 格式文件；服务器用 LiDAR 生成的参考轨迹比对，按位置误差打分。原始激光点云不公开，也不参与评测。</p>
+<p><strong>三个坑</strong>：比对时<strong>不调整尺度</strong>，所以必须输出米制轨迹；轨迹必须覆盖至少 99% 的真值位姿，否则该段 0 分；场景难度很高（暗光、弱纹理、剧烈运动），分数低不一定说明位姿差。</p></div>
+<h2 id="s1">1　这是什么</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主办</td>
+<td>Hilti、Trimble、牛津大学 Dynamic Robot Systems 组</td>
+</tr>
+<tr>
+<td>任务</td>
+<td>2026 年 SLAM 挑战赛（论文：<a href="https://arxiv.org/abs/2607.06464" target="_blank" rel="noopener">arXiv:2607.06464</a>）</td>
+</tr>
+<tr>
+<td>场景</td>
+<td>施工中的室内建筑，30 条序列、7 层、跨 8 个月</td>
+</tr>
+<tr>
+<td>状态</td>
+<td>挑战赛结果已在 ICRA 公布，在线评测服务器仍可继续提交</td>
+</tr>
+<tr>
+<td>获取</td>
+<td><a href="https://github.com/Hilti-Research/hilti-trimble-slam-challenge-2026" target="_blank" rel="noopener">GitHub 仓库</a>（标定文件、参考拼接实现、下载脚本）、<a href="https://huggingface.co/datasets/Hilti-Research/hilti-trimble-slam-challenge-2026" target="_blank" rel="noopener">Hugging Face</a>、<a href="https://hilti-trimble-challenge.com/dataset-2026" target="_blank" rel="noopener">官网</a></td>
+</tr>
+<tr>
+<td>许可</td>
+<td>CC BY-NC-SA 3.0：需署名、<strong>禁止商用</strong>、衍生作品须同样许可</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s2">2　数据内容</h2>
+<h3 id="s3">2.1　传感器</h3>
+<ul>
+<li><strong>相机</strong>：Insta360 One RS 1-Inch 360 版，两颗 1 英寸 CMOS，每颗配 Leica Summicron-A 6.52 mm f/2.2 鱼眼，视场约 200°。卷帘快门，官方说明两颗镜头的卷帘与曝光时序同步良好。</li>
+<li><strong>IMU</strong>：内置 6 轴（三轴陀螺加三轴加速度计），1000 Hz。</li>
+<li><strong>图像是原始双鱼眼，没有拼接成全景图</strong>；官方也明确指出拼接会带来视差误差。</li>
+</ul>
+<h3 id="s4">2.2　ROS 2 bag 里有什么</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>频率</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/cam0/image_raw/compressed</code></td>
+<td>30 Hz</td>
+<td>前相机，RGB，1472×1440，压缩格式</td>
+</tr>
+<tr>
+<td><code>/cam1/image_raw/compressed</code></td>
+<td>30 Hz</td>
+<td>后相机，同上</td>
+</tr>
+<tr>
+<td><code>/imu/data_raw</code></td>
+<td>1000 Hz</td>
+<td>原始 IMU</td>
+</tr>
+</tbody>
+</table></div>
+<p>时间戳统一加了 10000 秒（IMU 比相机略早启动，为避免负时间戳），所以图像从 t = 10000 s 开始。数据<strong>不是 <code>.insv</code></strong>，要先从 bag 里拆出图片和 IMU 才能喂给 Spirula。</p>
+<h3 id="s5">2.3　标定</h3>
+<p>官方提供两套用 Kalibr 得到的内外参：<strong>EUCM 模型</strong>，以及由 EUCM 内参拟合出的<strong>针孔等距模型</strong>（Kalibr 的针孔等距实现标不动这么大视场的鱼眼）；另有卷帘快门参数（<a href="https://github.com/Hilti-Research/hilti-trimble-slam-challenge-2026/blob/main/config/hilti_openvins/rs_config.yaml" target="_blank" rel="noopener"><code>rs_config.yaml</code></a>）。可当初值，也可只做对照。</p>
+<h3 id="s6">2.4　真值怎么来的</h3>
+<ul>
+<li>一台 <strong>Hesai XT32 激光雷达</strong>与 IMU 组成的建图设备，刚性固定在相机上，用 LiDAR-惯性 SLAM 生成参考轨迹，再通过 LiDAR–相机外参转换到 <code>cam0</code> 坐标系（<code>cam0 → map</code> 约定）。LiDAR 数据本身<strong>不在 bag 里</strong>，也没有公开。</li>
+<li>LiDAR 与其 IMU 用 PPS 信号硬件同步；Insta360 是独立运行的，所以用两路 IMU 的陀螺范数（与相对朝向无关）做相关搜索，再非线性精修时间偏移与<strong>线性时钟尺度因子</strong>，同时联合优化陀螺 bias。</li>
+<li>LiDAR 比相机晚启动，<strong>每段开头约 5 秒没有真值</strong>，不参与评测。</li>
+</ul>
+<h2 id="s7">3　评测流程</h2>
+<p>两个任务可任选其一或都做：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SLAM</td>
+<td>估计相机轨迹，<strong>坐标系任意</strong></td>
+</tr>
+<tr>
+<td>定位（Localization）</td>
+<td>估计在楼层平面图坐标系（map）下的轨迹，平面图左下角像素为 (0, 0)；官方给出 t ≈ 10005 s 时刻的真值位姿作初始定位（<code>init_gt_poses.csv</code>），且只比较水平位置，不看 z</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s8">3.1　五步走</h3>
+<ol>
+<li><strong>下数据</strong>：从 Hugging Face 下载 30 段 ROS 2 bag；拆出图片与 IMU。</li>
+<li><strong>用标定</strong>：选用 EUCM 或针孔等距的标定文件。</li>
+<li><strong>跑你的方法</strong>：SfM、VIO、SLAM 都行。</li>
+<li><strong>输出轨迹</strong>：每段一个 TUM 格式文件，每行 <code>timestamp tx ty tz qx qy qz qw</code>，文件名为 <code>floor_X_YYYY-MM-DD_run_Z.txt</code>（\(X\) 为楼层，如 1–7、EG、UG1、UG2；\(Z\) 为当日第几次）；轨迹表示 <code>cam0</code> 在世界坐标系下的位姿。</li>
+<li><strong>提交评测</strong>：上传到<a href="https://submit.hilti-challenge.com/" target="_blank" rel="noopener">评测服务器</a>，返回每段得分与误差曲线（其中 6 段只给分数、不给误差曲线）。</li>
+</ol>
+<h3 id="s9">3.2　哪些段计分</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>数量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总序列数</td>
+<td>30</td>
+</tr>
+<tr>
+<td>SLAM 任务计分</td>
+<td>25 段，满分 2500（5 段早期发布时已公开真值，不计分）</td>
+</tr>
+<tr>
+<td>定位任务计分</td>
+<td>24 段，满分 2400（另排除 <code>floor_UG2_2025-12-02_run_1</code>，因为没有该段平面图）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s10">4　打分规则</h2>
+<p>每个位姿按位置误差打分，一段的得分是所有位姿得分的平均，每段封顶 100：</p>
+<div class="eq">$$\text{score}=\frac{1}{N}\sum_{t=1}^{N} a\cdot e^{-c\cdot \text{error}_t},\qquad a=100,\quad c=0.4605$$</div>
+<p>其中 \(c=\ln 100/10\)，所以误差 0 m 得 100 分，误差 10 m 得 1 分。最终得分是各段得分之和。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>位置误差</th>
+<th>1 m</th>
+<th>2 m</th>
+<th>5 m</th>
+<th>10 m</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单个位姿得分（按公式算出）</td>
+<td>约 63</td>
+<td>约 40</td>
+<td>约 10</td>
+<td>1</td>
+</tr>
+</tbody>
+</table></div>
+<p>另外有一道硬门槛：预测轨迹要匹配上<strong>至少 99%</strong> 的真值位姿，覆盖率计算为 \(|\text{匹配的预测位姿}|/|\text{真值位姿}|\times100\)；低于 99%，该段直接记 0 分。</p>
+<h2 id="s11">5　拿来评估 Spirula 要注意什么</h2>
+<div class="callout warn">
+<p class="ct">三个坑</p>
+<ol>
+<li><strong>尺度</strong>：官方明确说使用 evo 时<strong>不调整尺度</strong>，所以输出必须是真实米制尺度。纯视觉 SfM 的尺度不定，要靠 IMU 或其他方法恢复。Spirula 有度量尺度恢复功能，可以用上。</li>
+<li><strong>覆盖率</strong>：SfM 一般只解抽出来的关键帧，需要把位姿插值到每个真值时间戳，或干脆全帧都解，才能达到 99%。</li>
+<li><strong>场景难度</strong>：室内工地，暗光、弱纹理、剧烈运动和动态初始化的片段多，与户外 3DGS 采集差别很大。分数低不一定说明位姿差，也不能直接代表你自己场景的结果。</li>
+</ol>
+</div>
+<h3 id="s12">5.1　不提交也能测</h3>
+<p>全部 30 段的真值现在都已在 Hugging Face 公开，可以本地用 <a href="https://github.com/MichaelGrupp/evo" target="_blank" rel="noopener">evo</a> 算 ATE 和分数，做 A/B 对比更快；评测服务器只在需要上排行榜时才用。要注意：如果既拿这些真值做约束、又拿它做评测，结果会失真。</p>
+<h3 id="s13">5.2　许可提醒</h3>
+<p>数据集许可是 CC BY-NC-SA 3.0，只能非商用。若要放进 Spirula 的测试集，或用于公司内部用途，要留意这一点。</p>
+<h3 id="s14">5.3　参考：冠军方案</h3>
+<p>据 Hilti 论文：前几名都用 VIO（多用双相机加 IMU）加后续 BA；SLAM 冠军 ACDC-VSLAM（KAIST，2410.0 / 2500 分）基于 OKVIS2-X，做了球面等面积特征选择以提升鱼眼角度覆盖、线特征补纹理缺乏区域、按轨迹可靠性与深度重加权局部 BA、前后相机跨相机回环，并按候选质量在 SE(3)、Sim(3)、4DoF 校正间自适应选择；定位赛冠军以 OKVIS2-X 加在线外参标定起步，平均 RMSE 24 cm。OpenVINS、ORB-SLAM3、VINS 等也被采用；跨相机回环与操作员 / 动态物体遮罩被普遍采用。</p>
+<div class="callout note">
+<p class="ct">下一步的可能</p>
+<p>如果要真正用起来，需要两样东西：一个把 bag 转成 Spirula 输入（图片加 IMU）的脚本，一个本地评分脚本；先挑一两段简单的序列跑通。</p>
+</div>
+<nav class="pn"><a href="/notes/spirula-sfm/spirula-gap/"><small>← 上一章</small>6　Spirula 代码对照：位姿精度该做什么、可加哪些功能</a><a class="next" href="/notes/spirula-sfm/projects/"><small>下一章 →</small>8　相关项目速读：fused-zipnerf、PR #214、MRE 导出修复</a></nav>
+</article>
+</div>
+<footer class="nf">Learning · Spirula · SfM 学习笔记 · 内容整理自 2026 年 10–11 月关于 spirula-studio / SfM / 3DGS 的技术问答与两份调研；凡标注「推断」「未核实」的内容请勿当作定论。</footer>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Spirula · SfM 学习笔记 · Learning</title>
+<meta name="description" content="spirula-studio 的 BA、数据准备、位姿精度调研、代码对照与评测数据集：按主题整理的中文阅读笔记。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230d1117%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%235cc8ff%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/notes.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="/assets/notes.js"></script>
+</head>
+<body>
+<div class="progress"></div>
+<header class="nbar"><div class="in"><a class="brand" href="/">Learning<b>.</b></a><span class="sep">/</span><a class="series" href="/notes/spirula-sfm/">Spirula · SfM 学习笔记</a><span class="sp"></span><details><summary>章节 ▾</summary><nav class="menu"><a class="on" href="/notes/spirula-sfm/">总目录</a><a href="/notes/spirula-sfm/ba-gpu/"><em>1</em>全局 BA 与 GPU：Spirula、COLMAP、MegBA</a><a href="/notes/spirula-sfm/intrinsics/"><em>2</em>内参与畸变：固定焦距、同时优化畸变、鱼眼模型怎么选</a><a href="/notes/spirula-sfm/data-prep/"><em>3</em>数据准备：抽帧去糊、INSV 遥测与自备图片的接法</a><a href="/notes/spirula-sfm/survey-general/"><em>4</em>提升 SfM 位姿精度的方案（一）：通用方法</a><a href="/notes/spirula-sfm/survey-360/"><em>5</em>提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</a><a href="/notes/spirula-sfm/spirula-gap/"><em>6</em>Spirula 代码对照：位姿精度该做什么、可加哪些功能</a><a href="/notes/spirula-sfm/hilti/"><em>7</em>Hilti-Trimble-Oxford 2026：数据集与评测流程</a><a href="/notes/spirula-sfm/projects/"><em>8</em>相关项目速读：fused-zipnerf、PR #214、MRE 导出修复</a></nav></details></div></header>
+<div class="hero">
+  <p class="eyebrow" style="color:var(--accent);font-weight:600;margin:0 0 8px">学习笔记系列 · 共 8 章</p>
+  <h1>Spirula · SfM 学习笔记</h1>
+  <p>围绕开源 SfM / 3DGS 工具 <a href="https://github.com/harry7557558/spirula-studio" target="_blank" rel="noopener">spirula-studio</a>，把一段时间里的技术问答和两份调研按主题重新整理成可连续阅读的笔记：GPU 上的光束法平差、鱼眼与 360 相机的数据准备、位姿精度提升方案、代码对照与路线图，以及评测数据集。</p>
+  <p>每章开头有一段“本章要点”，可以只读它；正文里的表格用来做对比，彩色提示框标出结论、注意事项和<strong>未核实</strong>的部分。</p>
+</div>
+<div class="chlist">
+<a class="chcard" href="/notes/spirula-sfm/ba-gpu/"><div class="no">01</div><div><h3>全局 BA 与 GPU：Spirula、COLMAP、MegBA</h3><p>Spirula 的全局 BA 默认跑在 Vulkan GPU 上；COLMAP 的 GPU 支持有限且默认关闭；MegBA 适合多卡超大规模，但不适合双鱼眼加 IMU 的流程。</p><div class="kw"><span class="tag">光束法平差</span><span class="tag">Vulkan / Slang</span><span class="tag">Schur + PCG</span><span class="tag">Ceres</span><span class="tag">MegBA</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/intrinsics/"><div class="no">02</div><div><h3>内参与畸变：固定焦距、同时优化畸变、鱼眼模型怎么选</h3><p>Spirula 能优化畸变，但还不能单独固定焦距；主流工具都支持按参数组分别控制。附上游 Issue #172 中关于 Insta360 鱼眼模型的讨论。</p><div class="kw"><span class="tag">固定焦距</span><span class="tag">畸变</span><span class="tag">thin-prism fisheye</span><span class="tag">Issue #172</span><span class="tag">COLMAP 对照</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/data-prep/"><div class="no">03</div><div><h3>数据准备：抽帧去糊、INSV 遥测与自备图片的接法</h3><p>抽帧阶段怎么挑清晰帧、丢模糊帧；原始 .insv 除了画面还提供什么、在 SfM 里起什么作用；已经自己抽帧加遮罩后，如何把遥测接回去。</p><div class="kw"><span class="tag">FramePick</span><span class="tag">.insv 遥测</span><span class="tag">IMU / GPS</span><span class="tag">manifest</span><span class="tag">rig</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/survey-general/"><div class="no">04</div><div><h3>提升 SfM 位姿精度的方案（一）：通用方法</h3><p>按流水线阶段梳理 2016–2026 年的位姿精度方案：特征与匹配、精修与 BA、SfM 系统、先验、前馈模型、辐射场联合位姿。每个方法写明机制、验证数据集、报告增益与许可。</p><div class="kw"><span class="tag">特征匹配</span><span class="tag">BA 与相机模型</span><span class="tag">GLOMAP</span><span class="tag">重力先验</span><span class="tag">VGGT 系</span><span class="tag">3DGS 联合位姿</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/survey-360/"><div class="no">05</div><div><h3>提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</h3><p>球面与全景 SfM、双鱼眼 rig 与 Insta360 实践、360 SLAM / VO / VIO、360 / 鱼眼 3DGS；公开数据集与基准；在双鱼眼流程里先试什么。</p><div class="kw"><span class="tag">球面 SfM</span><span class="tag">Insta360 IMU 尺度</span><span class="tag">原始鱼眼 vs 拼接</span><span class="tag">360 数据集</span><span class="tag">优先级</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/spirula-gap/"><div class="no">06</div><div><h3>Spirula 代码对照：位姿精度该做什么、可加哪些功能</h3><p>把调研里的方法逐项对照到 spirula-studio 的代码（已有 / 部分 / 缺失），给出提升位姿精度的排序方案与值得加入的功能，最后是 2–4 周路线图。</p><div class="kw"><span class="tag">能力地图</span><span class="tag">评测基线</span><span class="tag">鱼眼模型</span><span class="tag">卷帘快门</span><span class="tag">时间同步</span><span class="tag">路线图</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/hilti/"><div class="no">07</div><div><h3>Hilti-Trimble-Oxford 2026：数据集与评测流程</h3><p>一套公开的 Insta360 双鱼眼加 IMU 数据集，真值来自 LiDAR-惯性 SLAM。怎么下载、怎么提交、怎么打分，以及拿它评估 SfM 时要注意什么。</p><div class="kw"><span class="tag">Insta360 One RS</span><span class="tag">LiDAR 真值</span><span class="tag">TUM 格式</span><span class="tag">评分公式</span><span class="tag">CC BY-NC-SA 3.0</span></div></div></a>
+<a class="chcard" href="/notes/spirula-sfm/projects/"><div class="no">08</div><div><h3>相关项目速读：fused-zipnerf、PR #214、MRE 导出修复</h3><p>三个与 SfM / 3DGS 工作相关的具体项目：Zip-NeRF 的全 CUDA 重写版，Spirula 里“按对焦置信度降低模糊像素权重”的 PR，以及 points3D.bin 里逐点重投影误差恒为 0 的 bug 与修复。</p><div class="kw"><span class="tag">fused-zipnerf</span><span class="tag">Zip-NeRF</span><span class="tag">PR #214</span><span class="tag">MoGe-2</span><span class="tag">points3D.bin</span><span class="tag">上游 PR 规范</span></div></div></a>
+</div>
+<div class="idx-sec">
+  <h2>按目的选读</h2>
+  <div class="tw"><table>
+    <thead><tr><th>想了解</th><th>从这里读</th></tr></thead>
+    <tbody>
+      <tr><td>GPU 上的 BA 与 COLMAP / MegBA 的差别</td><td><a href="/notes/spirula-sfm/ba-gpu/">第 1 章</a></td></tr>
+      <tr><td>想固定焦距、选鱼眼模型</td><td><a href="/notes/spirula-sfm/intrinsics/">第 2 章</a></td></tr>
+      <tr><td>怎么抽帧去糊、怎么接回 IMU / GPS</td><td><a href="/notes/spirula-sfm/data-prep/">第 3 章</a></td></tr>
+      <tr><td>有哪些提升位姿精度的方法与数据集</td><td><a href="/notes/spirula-sfm/survey-general/">第 4 章</a>、<a href="/notes/spirula-sfm/survey-360/">第 5 章</a></td></tr>
+      <tr><td>在 Spirula 里该先做什么（直接看结论）</td><td><a href="/notes/spirula-sfm/spirula-gap/">第 6 章</a></td></tr>
+      <tr><td>怎么拿 Hilti 数据集评测</td><td><a href="/notes/spirula-sfm/hilti/">第 7 章</a></td></tr>
+    </tbody>
+  </table></div>
+  <h2>阅读约定</h2>
+  <ul>
+    <li><strong>推断</strong>：整理者自己的判断，不是来源所述。</li>
+    <li><strong>未核实</strong>：没有找到来源，或只读了摘要、没有实测。</li>
+    <li>代码结论来自静态阅读上游仓库，大多没有编译或运行；链接尽量固定到具体提交，因此可能与最新代码不同。</li>
+  </ul>
+</div>
+<footer class="nf">Learning · Spirula · SfM 学习笔记 · 内容整理自 2026 年 10–11 月关于 spirula-studio / SfM / 3DGS 的技术问答与两份调研；凡标注「推断」「未核实」的内容请勿当作定论。</footer>
+</body>
+</html>

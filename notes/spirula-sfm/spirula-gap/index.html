@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Spirula 代码对照：位姿精度该做什么、可加哪些功能 · Spirula · SfM 学习笔记</title>
+<meta name="description" content="把调研里的方法逐项对照到 spirula-studio 的代码（已有 / 部分 / 缺失），给出提升位姿精度的排序方案与值得加入的功能，最后是 2–4 周路线图。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230d1117%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%235cc8ff%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/notes.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="/assets/notes.js"></script>
+</head>
+<body>
+<div class="progress"></div>
+<header class="nbar"><div class="in"><a class="brand" href="/">Learning<b>.</b></a><span class="sep">/</span><a class="series" href="/notes/spirula-sfm/">Spirula · SfM 学习笔记</a><span class="sp"></span><details><summary>章节 ▾</summary><nav class="menu"><a href="/notes/spirula-sfm/">总目录</a><a href="/notes/spirula-sfm/ba-gpu/"><em>1</em>全局 BA 与 GPU：Spirula、COLMAP、MegBA</a><a href="/notes/spirula-sfm/intrinsics/"><em>2</em>内参与畸变：固定焦距、同时优化畸变、鱼眼模型怎么选</a><a href="/notes/spirula-sfm/data-prep/"><em>3</em>数据准备：抽帧去糊、INSV 遥测与自备图片的接法</a><a href="/notes/spirula-sfm/survey-general/"><em>4</em>提升 SfM 位姿精度的方案（一）：通用方法</a><a href="/notes/spirula-sfm/survey-360/"><em>5</em>提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</a><a class="on" href="/notes/spirula-sfm/spirula-gap/"><em>6</em>Spirula 代码对照：位姿精度该做什么、可加哪些功能</a><a href="/notes/spirula-sfm/hilti/"><em>7</em>Hilti-Trimble-Oxford 2026：数据集与评测流程</a><a href="/notes/spirula-sfm/projects/"><em>8</em>相关项目速读：fused-zipnerf、PR #214、MRE 导出修复</a></nav></details></div></header>
+<div class="nb-layout">
+<aside class="side"><div class="h">本章目录</div><a class="l2" href="#s1">1 分析范围</a><a class="l2" href="#s2">2 能力地图：调研方法 vs Spirula 现状</a><a class="l3" href="#s3">2.1 已有</a><a class="l3" href="#s4">2.2 部分具备</a><a class="l3" href="#s5">2.3 缺失</a><a class="l2" href="#s6">3 Q1：提升位姿精度，最值得做的事</a><a class="l3" href="#s7">Q1-1 先搭评测与消融基线</a><a class="l3" href="#s8">Q1-2 鱼眼模型表达力与 Insta360 出厂标定做初值</a><a class="l3" href="#s9">Q1-3 逐观测权重与更合适的鲁棒核</a><a class="l3" href="#s10">Q1-4 卷帘快门与镜头间曝光时差</a><a class="l3" href="#s11">Q1-5 时间同步：速率项 / 分段偏移，陀螺 bias 进因子</a><a class="l3" href="#s12">Q1-6 用已有的 RoMa v2 做稠密匹配精修（只对弱段）</a><a class="l3" href="#s13">Q1-7 重力对齐旋转平均：先当校验器</a><a class="l3" href="#s14">Q1-8 完整视觉–惯性 BA</a><a class="l3" href="#s15">Q1-9 训练内联合位姿细化</a><a class="l3" href="#s16">暂不建议优先做的</a><a class="l2" href="#s17">4 Q2：值得加入的功能</a><a class="l3" href="#s18">F1 SfM 质量报告：逐帧置信度、弱段定位、补拍建议</a><a class="l3" href="#s19">F2 陀螺辅助选帧</a><a class="l3" href="#s20">F3 标定与验证模式（棋盘 / AprilTag）</a><a class="l3" href="#s21">F4 训练内位姿 / rig 细化与卷帘感知渲染</a><a class="l3" href="#s22">F5 LiDAR 辅助位姿精修</a><a class="l3" href="#s23">F6 位姿不确定度导出</a><a class="l3" href="#s24">F7 前馈几何模型作“救援初始化”</a><a class="l3" href="#s25">F8 已拼接 360 视频的球面直接匹配</a><a class="l2" href="#s26">5 路线图</a><a class="l2" href="#s27">6 证据边界与未核实项</a></aside>
+<article>
+<details class="toc-m"><summary>本章目录 ▾</summary><div class="side-in"><a class="l2" href="#s1">1 分析范围</a><a class="l2" href="#s2">2 能力地图：调研方法 vs Spirula 现状</a><a class="l3" href="#s3">2.1 已有</a><a class="l3" href="#s4">2.2 部分具备</a><a class="l3" href="#s5">2.3 缺失</a><a class="l2" href="#s6">3 Q1：提升位姿精度，最值得做的事</a><a class="l3" href="#s7">Q1-1 先搭评测与消融基线</a><a class="l3" href="#s8">Q1-2 鱼眼模型表达力与 Insta360 出厂标定做初值</a><a class="l3" href="#s9">Q1-3 逐观测权重与更合适的鲁棒核</a><a class="l3" href="#s10">Q1-4 卷帘快门与镜头间曝光时差</a><a class="l3" href="#s11">Q1-5 时间同步：速率项 / 分段偏移，陀螺 bias 进因子</a><a class="l3" href="#s12">Q1-6 用已有的 RoMa v2 做稠密匹配精修（只对弱段）</a><a class="l3" href="#s13">Q1-7 重力对齐旋转平均：先当校验器</a><a class="l3" href="#s14">Q1-8 完整视觉–惯性 BA</a><a class="l3" href="#s15">Q1-9 训练内联合位姿细化</a><a class="l3" href="#s16">暂不建议优先做的</a><a class="l2" href="#s17">4 Q2：值得加入的功能</a><a class="l3" href="#s18">F1 SfM 质量报告：逐帧置信度、弱段定位、补拍建议</a><a class="l3" href="#s19">F2 陀螺辅助选帧</a><a class="l3" href="#s20">F3 标定与验证模式（棋盘 / AprilTag）</a><a class="l3" href="#s21">F4 训练内位姿 / rig 细化与卷帘感知渲染</a><a class="l3" href="#s22">F5 LiDAR 辅助位姿精修</a><a class="l3" href="#s23">F6 位姿不确定度导出</a><a class="l3" href="#s24">F7 前馈几何模型作“救援初始化”</a><a class="l3" href="#s25">F8 已拼接 360 视频的球面直接匹配</a><a class="l2" href="#s26">5 路线图</a><a class="l2" href="#s27">6 证据边界与未核实项</a></div></details>
+<p class="eyebrow">第 6 章 / 共 8 章</p>
+<h1>Spirula 代码对照：位姿精度该做什么、可加哪些功能</h1>
+<p class="meta">分析对象：harry7557558/spirula-studio 提交 3137944（2026-11-01，clean up stub training configs）。只做了静态阅读和 grep，没有编译、没有运行，也没有在真实数据上做任何实验。</p>
+<div class="tldr"><p class="ct">本章要点</p><p><strong>调研里推荐的很多东西 Spirula 已经有了</strong>：原始双鱼眼 rig、单位球面几何、IMU / GPS 先验进 BA、手眼标定与时钟偏移、度量尺度、ALIKED + LightGlue。所以建议集中在剩下的缺口，而不是“把 IMU 用起来”。</p>
+<p><strong>提升位姿精度，按优先级</strong>：① 先搭评测基线；② 增强鱼眼模型并用 Insta360 出厂标定做初值；③ BA 加逐观测权重与更合适的鲁棒核；④ 卷帘快门与镜头间曝光时差（先做零成本诊断）；⑤ 时钟速率 / 分段偏移与陀螺 bias；⑥ 对弱段做稠密匹配精修。</p>
+<p><strong>值得加的功能</strong>：SfM 质量报告、陀螺辅助选帧、标定与验证模式、训练内位姿 / rig 细化、LiDAR 辅助精修、位姿不确定度导出。每一步都以基线指标为准——指标没提升的改动默认关闭。</p></div>
+<h2 id="s1">1　分析范围</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>仓库</td>
+<td><a href="https://github.com/harry7557558/spirula-studio" target="_blank" rel="noopener">harry7557558/spirula-studio</a>（GPL-3.0）</td>
+</tr>
+<tr>
+<td>分析的提交</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/commit/3137944db872f718e58891736f5f17285488d641" target="_blank" rel="noopener"><code>3137944</code></a></td>
+</tr>
+<tr>
+<td>克隆方式</td>
+<td>浅克隆，仅 6 个提交，无法追溯设计变更的历史</td>
+</tr>
+<tr>
+<td>读过的范围</td>
+<td><code>src/sfm/</code>（README 全文、core / map / ba / feature / geometry / shaders）、<code>docs/notes</code> 中 SfM、IMU、rig、LiDAR、标记、RoMa 笔记、<code>tools/sfm</code>、训练引擎相关接口</td>
+</tr>
+<tr>
+<td>没做的事</td>
+<td>没编译、没运行，也没在真实数据上做实验；所有“现状”来自静态阅读加 grep</td>
+</tr>
+</tbody>
+</table></div>
+<div class="callout unv">
+<p class="ct">方法上的提醒</p>
+<p>凡写“缺失”的项都先在 <code>src/</code> 下 grep 过，关键词写在备注里；若某项在别的分支或未合并的 PR 里则没有看到。README 与代码头注释也有不一致（例如 <code>Mapper.h</code> 头注释仍写“无局部 BA、无重三角化”，README 却记录重三角化与轨迹合并已完成），以代码与 README 较新的叙述为准，仍请抽查。</p>
+</div>
+<h2 id="s2">2　能力地图：调研方法 vs Spirula 现状</h2>
+<p>状态含义：<strong>已有</strong>＝代码里能找到并有测试或文档；<strong>部分</strong>＝有基础，但与调研的做法有缺口；<strong>缺失</strong>＝grep 未命中。</p>
+<h3 id="s3">2.1　已有</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>位置</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>保持原始双鱼眼为 rig（不拼成 ERP）</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Rig.h" target="_blank" rel="noopener"><code>Rig.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/app/FrameExtract.cpp#L302" target="_blank" rel="noopener"><code>extract_synced</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/sfm-rig-constraints.md" target="_blank" rel="noopener"><code>sfm-rig-constraints.md</code></a></td>
+<td><code>--rig</code>、<code>kind: dual-fisheye</code>（第二镜头绕竖轴转 180°，<code>refine: axial</code>）；<code>.insv</code> 两路轨迹同索引抽帧；gp3p 广义 PnP 联合注册（README 自述 <code>.insv</code> 上内点 +6.9%）</td>
+</tr>
+<tr>
+<td>单位球面（bearing）几何与球面 Sampson 误差</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Camera.h#L112" target="_blank" rel="noopener"><code>bearing()</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/geometry/Fundamental.h#L243" target="_blank" rel="noopener"><code>sampsonSqBearing</code></a></td>
+<td>几何核心在单位方向向量上，鱼眼与等距柱状都能用（决策 D31 / D45 / D49）</td>
+</tr>
+<tr>
+<td>内参自标定（主点、畸变、逐图内参）</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Bundle.h#L45" target="_blank" rel="noopener"><code>BundleOptions</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/sfm-design.md" target="_blank" rel="noopener"><code>sfm-design.md</code></a></td>
+<td><code>--refine-principal-point</code>、<code>--final-principal-point</code>、<code>--final-extra-params</code>、<code>--final-per-image-intrinsics</code>；主点与旋转的退化已写成决策 D50–D51、D72–D73</td>
+</tr>
+<tr>
+<td>学习式特征与匹配（ALIKED + LightGlue、LoMa）</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/aliked/README.md" target="_blank" rel="noopener"><code>src/aliked</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/loma/README.md" target="_blank" rel="noopener"><code>src/loma</code></a></td>
+<td><code>--features</code> / <code>--matcher</code> 选择；README 自述三种前端“尚无打分对比”</td>
+</tr>
+<tr>
+<td>已知旋转的两视图 / PnP（陀螺、重力先验）</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/geometry/KnownRotation.h" target="_blank" rel="noopener"><code>KnownRotation.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorPriors.h" target="_blank" rel="noopener"><code>SensorPriors.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/ba/Priors.h" target="_blank" rel="noopener"><code>Priors.h</code></a></td>
+<td><code>--sensor-verify</code>（2 点 RANSAC）、<code>--sensor-map</code>（陀螺相对旋转、重力、加速度计尺度三元组、GPS 作为 BA 因子）</td>
+</tr>
+<tr>
+<td>度量尺度（IMU / GPS）与重力对齐</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/ImuScale.h" target="_blank" rel="noopener"><code>ImuScale.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/MetricGauge.h" target="_blank" rel="noopener"><code>MetricGauge.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/BlockScale.h" target="_blank" rel="noopener"><code>BlockScale.h</code></a></td>
+<td><code>--metric-gps</code>、<code>--gps-scale-band</code>、<code>--level-erp</code>、<code>gauge.txt</code>；<code>imu-gps-for-sfm.md</code> §5.6 记录 X5 一段 118 秒步行的加速度计尺度拟合不确定度 0.3%（拟合自述的不确定度，不是对真值的误差）</td>
+</tr>
+<tr>
+<td>LiDAR 对齐</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/app/LidarAlign.h" target="_blank" rel="noopener"><code>LidarAlign.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/lidar-alignment.md" target="_blank" rel="noopener"><code>lidar-alignment.md</code></a></td>
+<td>Sim3 加点到面 ICP（Geman-McClure 权重），事后对齐；不反向约束位姿</td>
+</tr>
+<tr>
+<td>基于图像的模糊 / 相似帧剔除</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/app/FramePick.h" target="_blank" rel="noopener"><code>FramePick.h</code></a></td>
+<td>边缘宽度加 dHash；没有用陀螺角速度</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s4">2.2　部分具备</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>位置</th>
+<th>缺口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>鱼眼 / 全景相机模型</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Camera.h#L308" target="_blank" rel="noopener"><code>kCamModelInfo</code></a></td>
+<td>SfM 端 8 个模型：OpenCV_FISHEYE（k1–k4）、THIN_PRISM_FISHEYE、FULL_OPENCV、EQUIRECTANGULAR（不可优化）等。EUCM / Double Sphere 在 SfM 端没有；EUCM 只在数据导入侧能读（COLMAP id 16，拟合到训练端模型）</td>
+</tr>
+<tr>
+<td>厂商出厂镜头标定</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/LensCalibration.h" target="_blank" rel="noopener"><code>LensCalibration.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Telemetry.cpp#L1302" target="_blank" rel="noopener"><code>offset_v3 仅记录</code></a></td>
+<td>DJI <code>.OSV</code> 已用（k1..k5 重拟合成 k1..k4，最坏误差 1.97 / 1.22 px）；Insta360 的 <code>offset_v3</code> 只写进日志备注，没有变成内参初值</td>
+</tr>
+<tr>
+<td>稠密匹配 RoMa v2</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/roma/README.md" target="_blank" rel="noopener"><code>src/roma</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/dense/README.md" target="_blank" rel="noopener"><code>src/dense</code></a></td>
+<td>原生 Vulkan 移植，但只用于稠密点云，且相机固定（SfM 之后）；没有接回 BA 或关键点精修</td>
+</tr>
+<tr>
+<td>IMU–镜头外参与时钟偏移</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/ImuExtrinsic.h#L327" target="_blank" rel="noopener"><code>时钟偏移搜索</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorGauge.h#L224" target="_blank" rel="noopener"><code>帧时间</code></a></td>
+<td>手眼标定 \(AX=XB\)、重力对、左右手系假设已有；时间模型是 idx/fps + 0.5·读出 + <strong>单个标量偏移</strong>，没有速率（漂移）项，也没有分段</td>
+</tr>
+<tr>
+<td>鲁棒核</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/shaders/common/loss.slang" target="_blank" rel="noopener"><code>loss.slang</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Mapper.h#L322" target="_blank" rel="noopener"><code>ba_loss</code></a></td>
+<td>trivial / Huber / Cauchy，默认 Huber δ=2 px（乘各相机像素比例）；没有 Tukey / Geman-McClure；注释写明省略了 Triggs 修正</td>
+</tr>
+<tr>
+<td>卷帘快门建模</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Telemetry.h#L71" target="_blank" rel="noopener"><code>frame_readout</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorPriors.h#L292" target="_blank" rel="noopener"><code>只进时间戳</code></a></td>
+<td>读出时间只用来把帧时刻挪到曝光中点；BA 观测模型与渲染都是全局快门（grep rolling）</td>
+</tr>
+<tr>
+<td>回环 / 重复结构</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/feature/PairSelection.h" target="_blank" rel="noopener"><code>PairSelection.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Sequence.h" target="_blank" rel="noopener"><code>Sequence.h</code></a></td>
+<td><code>--loop-closure</code> 把 prefilter 短名单并入配对；<code>--sequence</code> 用邻帧顺序抗重复结构；没有位姿图 / 旋转平均式的回环校验</td>
+</tr>
+<tr>
+<td>AprilTag / ArUco</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/data/MarkerDetector.h" target="_blank" rel="noopener"><code>MarkerDetector.h</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/markers.md" target="_blank" rel="noopener"><code>markers.md</code></a></td>
+<td>检测加对齐尺度 / 地面（编辑器里，重投影 &gt; 4 px 的标记被拒）；SfM 与 BA 不用它</td>
+</tr>
+<tr>
+<td>位姿评测</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/tools/sfm/eval_poses.py" target="_blank" rel="noopener"><code>eval_poses.py</code></a></td>
+<td>相对位姿 AUC 加 Sim3 对齐误差；没有 360 / 双鱼眼真值适配器，ETH3D / IMC 对标未做（README #17）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s5">2.3　缺失</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>检查位置</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>完整视觉–惯性 BA（速度 / bias 状态）</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/imu-gps-for-sfm.md#L739" target="_blank" rel="noopener"><code>§6 自述仍开放</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Preintegration.h" target="_blank" rel="noopener"><code>Preintegration.h</code></a></td>
+<td>预积分类已在，但 BA 里只有仅含位姿的因子</td>
+</tr>
+<tr>
+<td>全局 SfM（旋转平均 + 全局定位，GLOMAP 路线）</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/README.md" target="_blank" rel="noopener"><code>README「Not done yet」#16</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Merge.h#L517" target="_blank" rel="noopener"><code>仅合并时用弦均值</code></a></td>
+<td>有增量式与 bottom-up 两种 mapper；旋转平均只在模型合并时做弦均值</td>
+</tr>
+<tr>
+<td>局部 BA</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Mapper.h#L17" target="_blank" rel="noopener"><code>头注释</code></a>、README #1</td>
+<td>只有全局 BA；README 自己指出主要是规模问题，不是精度问题</td>
+</tr>
+<tr>
+<td>逐观测权重 / 协方差</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/ba/Problem.h#L82" target="_blank" rel="noopener"><code>BAProblem 观测字段</code></a>、README #3</td>
+<td>观测只有 image、point、xy 三列，没有权重列</td>
+</tr>
+<tr>
+<td>特征度量（featuremetric）关键点 / 轨迹精修</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/shaders/sift/sift.slang#L197" target="_blank" rel="noopener"><code>仅 SIFT 的亚像素插值</code></a></td>
+<td>grep featuremetric、guided、rematch 在 <code>src/sfm</code> 无命中；有 <code>completeAndRetriangulate</code> 与 <code>--merge-tracks</code>，但不是特征图对齐</td>
+</tr>
+<tr>
+<td>位姿不确定度输出</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/MetricGauge.h#L2" target="_blank" rel="noopener"><code>仅 gauge 级</code></a></td>
+<td>grep covariance / uncertaint 只在 gauge 拟合里出现，没有逐帧协方差</td>
+</tr>
+<tr>
+<td>前馈模型（VGGT / MASt3R / π³）</td>
+<td><code>src/</code> 全树</td>
+<td>grep vggt、mast3r、dust3r、pi3 均无命中</td>
+</tr>
+<tr>
+<td>3DGS 训练内联合位姿细化</td>
+<td><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/data/tests/train_config_test.cpp#L28" target="_blank" rel="noopener"><code>use_camera_optimizer 已退役</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/engine/Engine.h#L203" target="_blank" rel="noopener"><code>viewmats 梯度为 null</code></a></td>
+<td>后端 <code>ProjectionBwd</code> kernel 接受可选 <code>v_viewmats</code>，但引擎没有接</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s6">3　Q1：提升位姿精度，最值得做的事</h2>
+<p>排序依据：来源证据强度、与 Insta360 双鱼眼数据的相关性、工作量。<strong>收益与工作量都是推断</strong>，只有“来源证据”里带出处的数字才是论文或仓库文档所述。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>序</th>
+<th>做什么</th>
+<th>预期收益（推断）</th>
+<th>工作量（推断）</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>先搭评测与消融基线</td>
+<td>不直接涨点，但决定后面每项是否可信</td>
+<td>低（约 1–2 周）</td>
+<td>低</td>
+</tr>
+<tr>
+<td>2</td>
+<td>鱼眼模型表达力 + Insta360 出厂标定做初值</td>
+<td>中</td>
+<td>低–中</td>
+<td>低</td>
+</tr>
+<tr>
+<td>3</td>
+<td>逐观测权重与更合适的鲁棒核</td>
+<td>低–中</td>
+<td>低</td>
+<td>低</td>
+</tr>
+<tr>
+<td>4</td>
+<td>卷帘快门 + 镜头间曝光时差</td>
+<td>待测：快速转动数据上可能最大，静止采集接近 0</td>
+<td>中</td>
+<td>中（与旋转 / 主点类似的退化风险）</td>
+</tr>
+<tr>
+<td>5</td>
+<td>时间同步加速率项 / 分段偏移，陀螺 bias 进因子</td>
+<td>中（对长 clip 的尺度与旋转先验）</td>
+<td>低–中</td>
+<td>低</td>
+</tr>
+<tr>
+<td>6</td>
+<td>用已有的 RoMa v2 做稠密匹配精修（只对弱段）</td>
+<td>未知：来源只有定性结论</td>
+<td>高</td>
+<td>中（显存、耗时、鱼眼域差）</td>
+</tr>
+<tr>
+<td>7</td>
+<td>重力对齐旋转平均：先当校验器，再决定是否做全局 mapper</td>
+<td>中–高（通用数据集有数字；360 未验证）</td>
+<td>中（校验器）/ 高（全局 mapper）</td>
+<td>中</td>
+</tr>
+<tr>
+<td>8</td>
+<td>完整视觉–惯性 BA（速度 / bias 状态）</td>
+<td>高潜力，但先看 4、5 之后的残余</td>
+<td>高</td>
+<td>高</td>
+</tr>
+<tr>
+<td>9</td>
+<td>训练内联合位姿细化（下游补偿，不是 SfM 本身）</td>
+<td>对渲染质量有机会，对“位姿真值”无保证</td>
+<td>中–高</td>
+<td>中（位姿与场景一起漂）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s7">Q1-1　先搭评测与消融基线</h3>
+<p><strong>缺口</strong>：没有一把能在 Insta360 数据上量出“位姿准不准”的固定尺子。没有它，下面任何改动都无法判断是涨点还是噪声。</p>
+<p><strong>现状</strong></p>
+<ul>
+<li><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/tools/sfm/eval_poses.py" target="_blank" rel="noopener"><code>eval_poses.py</code></a>：相对位姿 AUC 加 Sim3 对齐误差。README 自述：未注册的图像对按 180° 失败计，AUC 上限是（注册数 / 总数）²，所以要先看注册率；真值常把主点固定在图像中心，精修主点的模型会被误判。</li>
+<li>README 自列未做：ETH3D / IMC 对标（#17）、三种特征前端的打分对比（#15）。仓库里没有 360 / 双鱼眼真值适配器。</li>
+<li>可复用的部件：标记检测 <a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/data/MarkerDetector.h" target="_blank" rel="noopener"><code>MarkerDetector.h</code></a>、LiDAR 对齐 <a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/app/LidarAlign.h" target="_blank" rel="noopener"><code>LidarAlign.h</code></a>、LPIPS（<code>src/lpips</code>）。</li>
+</ul>
+<p><strong>建议改法</strong></p>
+<ul>
+<li>加 Hilti-Trimble-Oxford 适配器：读 LiDAR-惯性真值轨迹，输出 Sim3 对齐 ATE、分段相对位姿误差、AUC@1/3/5°，并附注册率。</li>
+<li>自采数据三类真值：① 闭环起终点位姿闭合误差；② AprilTag 角点三角化后的边长比与共面残差，按离轴角分箱（复刻 OVR 的做法）；③ LiDAR 对齐后的深度重投影残差（评测时不能同时当约束）。</li>
+<li>下游放大镜：同一训练配置下留出视角的 PSNR / SSIM / LPIPS，作间接指标。</li>
+<li>所有改动做成默认关闭的 CLI 开关（沿用 <code>SfmConfig.h</code> 的选项表），便于 A/B。</li>
+</ul>
+<p><strong>来源证据</strong></p>
+<ul>
+<li>Hilti-Trimble-Oxford 2026：Insta360 One RS + LiDAR-惯性真值（CC BY-NC-SA 3.0），见第 7 章。</li>
+<li>OVR（<a href="https://arxiv.org/abs/2610.35554" target="_blank" rel="noopener">arXiv:2610.35554</a>）：9 条带 LiDAR 的测量上，度量尺度 MAE 0.81%（手机 1.94%）；marker 尺寸用作验证；鱼眼模型在离轴 50° 以外会让标记尺寸偏差数个百分点。</li>
+</ul>
+<p><strong>怎么验证</strong>：本项自身就是验证手段。先在一份已知好的重建上跑通，再跑一个故意变差的设置（例如关掉 <code>--rig</code>），确认指标能分辨。</p>
+<h3 id="s8">Q1-2　鱼眼模型表达力与 Insta360 出厂标定做初值</h3>
+<p><strong>缺口</strong>：大离轴角处的模型残差会变成边缘观测的系统误差，被 Huber 降权或被 rig 外参吸收。是否真的影响你的数据，要用“按离轴角分箱的残差曲线”测，而不是猜。</p>
+<p><strong>现状</strong></p>
+<ul>
+<li>SfM 端鱼眼只有 KB 多项式（k1–k4）与 thin-prism 变体（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Camera.h#L308" target="_blank" rel="noopener"><code>Camera.h:308</code></a>）。</li>
+<li>笔记自述：DJI 厂标有 k5，没有它多项式在 86.9° / 90.1° 处回折、短于像圆；<code>LensCalibration.h</code> 重拟合到 k4 后，最坏误差 1.97 / 1.22 px，镜头间中位残差 0.98 对 0.88 px（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/imu-gps-for-sfm.md#L148" target="_blank" rel="noopener"><code>§2.3</code></a>）。</li>
+<li>Insta360 的 <code>offset_v3</code>（每镜头 fx、fy、cx、cy、yaw、pitch、roll、k1..k3、p1、p2）只被记录（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Telemetry.cpp#L1302" target="_blank" rel="noopener"><code>Telemetry.cpp:1302</code></a>）。</li>
+<li>rig 笔记：Insta360 双镜头自由精修时，横向平移是轴向的 30–50%；限制到光轴后点数更多、误差更低（470 张步行：194103 点 / 0.914 px 对 178478 点 / 0.966 px）。作者怀疑这一项吸收了“不是刚性偏移的东西”（两颗传感器读出方向不同）。</li>
+</ul>
+<p><strong>建议改法</strong></p>
+<ol start="0">
+<li><strong>零成本诊断</strong>：在现有重建上画“重投影残差 vs 离轴角 θ”，每镜头一条曲线；若 θ&gt;70° 有明显抬升，再往下做。</li>
+<li>候选 A：KB 多项式加 k5（与 DJI 厂标一致，改动最小）。候选 B：EUCM（数据导入侧已知 COLMAP id 16、6 参数，参数顺序以 COLMAP 4.1 文档为准——<strong>需核实</strong>）。<code>Camera.h</code> 头注释写明：加模型只需 <code>kCamModelInfo</code> 一行、一个 Slang 模型结构和 <code>Problem.h</code> 注册；雅可比由 <code>bwd_diff</code> 自动求导（<code>ba.slang:288</code>），不用手推。</li>
+<li>解析 Insta360 <code>offset_v3</code> 做 params 初值，沿用 <code>LensCalibration</code> 的“只在没有人为设置时才覆盖”机制。注意 <code>offset_v3</code> 的投影公式没有在读码中确认（推断：形式是 k1..k3 多项式加切向，需对照 telemetry-parser 或实拍核对）。</li>
+<li>与自标定做对照：同一份数据分别用“出厂初值 + 固定”“出厂初值 + 精修”“默认初值 + 精修”。</li>
+</ol>
+<p><strong>来源证据</strong>：COLMAP 4.1.0（2026-06-26）新增球面与 EUCM 相机模型；Double Sphere 论文（<a href="https://arxiv.org/abs/1807.08957" target="_blank" rel="noopener">arXiv:1807.08957</a>）按重投影误差与耗时比较了大视场模型；OVR 发现 50° 离轴以外的畸变模型误差。</p>
+<p><strong>怎么验证</strong>：θ 分箱残差曲线是否变平；tag 边长比对 θ 的斜率是否缩小；rig 横向 / 轴向平移比是否变化；最终 AUC / ATE（Q1-1）。</p>
+<h3 id="s9">Q1-3　逐观测权重与更合适的鲁棒核</h3>
+<p><strong>缺口</strong>：现在 SIFT、ALIKED、LoMa 三种前端和不同分辨率共用一个 δ；鱼眼边缘一个像素对应的角度更大，却按像素等权。</p>
+<p><strong>现状</strong></p>
+<ul>
+<li><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/shaders/common/loss.slang" target="_blank" rel="noopener"><code>loss.slang</code></a>：trivial / Huber / Cauchy，注释写明省略 Triggs 修正；每个（精度，核）组合预编译一套 kernel（<code>Options.h:115</code>）。</li>
+<li>默认 Huber δ=2 px × 相机像素比例（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Bundle.h#L45" target="_blank" rel="noopener"><code>Bundle.h:45</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Mapper.h#L1767" target="_blank" rel="noopener"><code>Mapper.h:1767</code></a>）。同一相机内所有观测等权。</li>
+<li><code>BAProblem</code> 的观测只有 <code>obs_image / obs_point / obs_xy</code>（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/ba/Problem.h#L82" target="_blank" rel="noopener"><code>Problem.h:82</code></a>）；README 自列 “per-observation weights” 未做。</li>
+</ul>
+<p><strong>建议改法</strong></p>
+<ul>
+<li><code>BAProblem</code> 加 <code>obs_weight</code>（float，缺省 1），在 <code>ba.slang</code> 的残差 kernel（约 205 行）与 <code>jac_impl</code>（约 265 行）里把残差乘 \(w\)；来源可以是前端 / 尺度 octave / 离轴角换算（<code>Camera.errRad</code> 已有像素到弧度的换算）。</li>
+<li>先测再设：对每种前端统计残差的鲁棒标准差（MAD），用它定 σ，而不是拍脑袋。</li>
+<li>可选：把 Geman-McClure 或 Tukey 加成 <code>--ba-loss</code> 的新值（<code>loss.slang</code> 一个 struct 加编译开关；kernel 数量会翻倍，要留意构建时间与二进制体积）。</li>
+</ul>
+<p><strong>来源证据</strong>：NW-RSBA（<a href="https://arxiv.org/abs/2209.08503" target="_blank" rel="noopener">arXiv:2209.08503</a>）摘要用视觉残差的解析协方差标准化重投影误差（摘要未给数字）；IM360 球面 BA 局部阶段 soft-L1、全局阶段不加核。</p>
+<p><strong>怎么验证</strong>：同一数据、固定其余设置的 A/B；报告注册率不变前提下的 ATE 变化，分前端分别看。</p>
+<h3 id="s10">Q1-4　卷帘快门与镜头间曝光时差</h3>
+<p>双鱼眼最有机会的“机理级”改进，也是最需要先诊断的。</p>
+<p><strong>缺口</strong>：相机转动时，图像沿读出方向被剪切。一阶算例（<strong>推断，非来源数字</strong>）：角速度 0.5 rad/s、读出 11.9 ms、焦距约 550 px，则帧上下沿的几何位移约为</p>
+<div class="eq">$$0.5\times0.0119\times550\approx3.3\ \text{px}$$</div>
+<p>这与笔记里“横向平移吸收了不是刚性偏移的东西”的观察同方向，但是否是原因没有验证。</p>
+<p><strong>现状</strong></p>
+<ul>
+<li>读出时间已读出：X5 <code>.insv</code> 4K 为 11.9 ms、Osmo 360 为 24.0 ms（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/imu-gps-for-sfm.md#L61" target="_blank" rel="noopener"><code>§2.1</code></a>、§2.3），测试里 Avata 为 21.2 ms；只用于帧时刻 = idx/fps + 0.5·读出 + 偏移（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorPriors.h#L292" target="_blank" rel="noopener"><code>SensorPriors.h:292</code></a>、<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorGauge.h#L224" target="_blank" rel="noopener"><code>SensorGauge.h:224</code></a>）。</li>
+<li>BA 观测模型是全局快门（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/shaders/common/camera.slang#L294" target="_blank" rel="noopener"><code>reproject / reprojectRig</code></a>）。</li>
+<li>两个镜头同索引抽帧（<code>extract_synced</code>），但两颗传感器各自真实曝光时刻的差没有建模。</li>
+</ul>
+<p><strong>建议改法</strong></p>
+<ol start="0">
+<li><strong>诊断（不改 BA）</strong>：对每个镜头，把残差的 y 分量对观测行号做回归，看斜率是否随角速度（陀螺）变化；斜率为零则卷帘不是主因，可以省掉这项。</li>
+<li>一阶卷帘模型（公式见列表后）：\(s=\pm1\) 是每镜头的读出方向，\(\omega\) 先取陀螺（<code>SensorTimeline</code> 已能给出 IMU 旋转，经手眼 \(X\) 转到镜头系）作固定输入，不入优化，以避开与旋转 / 主点的退化。</li>
+<li>实现：<code>reproject&lt;M&gt;</code> 增加 \((\omega,\tau)\) 入参，\(\omega\) 为每图常量缓冲；雅可比仍由 <code>bwd_diff</code> 生成。DJI 没有原始陀螺，只有 1 kHz 融合姿态，可用相邻四元数差分求 \(\omega\)。</li>
+<li>rig 加一个标量 \(\Delta t\)（第二镜头相对第一镜头的曝光时差），与 \(\omega\) 相乘修正第二镜头旋转；先做一维扫描再决定是否入优化。</li>
+</ol>
+<p>观测所在行 <code>row</code>（图像高度 \(H\)）的时刻与对应旋转为：</p>
+<div class="eq">$$\tau=\left(\frac{\text{row}}{H}-\frac12\right)\cdot\text{readout}\cdot s,\qquad R(\tau)=\exp\!\big([\omega\tau]_\times\big)\,R_0$$</div>
+<p><strong>来源证据</strong>：NW-RSBA 摘要称卷帘 BA 的归一化加协方差加权优于现有工作（未给数字）；3DGUT（<a href="https://arxiv.org/abs/2412.12507" target="_blank" rel="noopener">arXiv:2412.12507</a>）摘要称渲染端支持畸变相机与卷帘；COLMAP 3.10–4.2.1 的 changelog 里检索不到卷帘模型；OVR 把 IMU 用在尺度与时间上，未处理卷帘。</p>
+<p><strong>怎么验证</strong>：合成数据——照 <code>sfm_sensor_gauge_test</code> 的写法注入已知卷帘，检查能否恢复；真实数据——同一地点“慢走”和“快转”各一段，比较闭环误差与“残差—行号”斜率；有 \(\Delta t\) 项时看斜率是否归零。</p>
+<h3 id="s11">Q1-5　时间同步：速率项 / 分段偏移，陀螺 bias 进因子</h3>
+<p><strong>缺口</strong>：标称帧率与真实帧率有微小差别时，偏移会随时间线性增长。</p>
+<p><strong>现状</strong></p>
+<ul>
+<li>时钟偏移每个 capture 一个标量，由“相邻帧旋转角”匹配搜出（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/ImuExtrinsic.h#L327" target="_blank" rel="noopener"><code>ImuExtrinsic.h:327</code></a>；<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorPriors.h#L556" target="_blank" rel="noopener"><code>拿重建旋转再估一次</code></a>）；fps 取文件标称值（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/Pipeline.cpp#L267" target="_blank" rel="noopener"><code>Pipeline.cpp:267</code></a>）。</li>
+<li>陀螺相对旋转因子用固定的漂移项 <code>drift_deg_per_s = 0.03</code> 吸收 bias（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/SensorPriors.h#L43" target="_blank" rel="noopener"><code>SensorPriors.h:43</code></a>）；bias 只在尺度求解里估。</li>
+</ul>
+<p><strong>建议改法</strong></p>
+<ul>
+<li>偏移改成 (offset, rate) 两参数，或每 N 秒一个偏移；沿用“与手眼 \(X\) 无关的相邻帧旋转角匹配”目标，做 2 维搜索。</li>
+<li>每段 3 个陀螺 bias 参数进入相对旋转因子（<code>Priors.h</code>），保留 0.03°/s 作先验宽度；<code>gauge.txt</code> 里报告每段偏移与漂移量，超过阈值就警告。</li>
+</ul>
+<p><strong>来源证据</strong>：OVR 报告 0.1% 的帧间隔误差在 10 分钟内造成 0.6 秒偏移；联合求解的尺度偏差 +3.4%，分段求解把 MAE 从 3.43% 降到 0.85%；手眼残差 0.05–0.18° / 区间。</p>
+<p><strong>怎么验证</strong>：在 5 分钟以上的 clip 上画偏移随时间的曲线；对照 LiDAR / 卷尺的尺度误差。</p>
+<h3 id="s12">Q1-6　用已有的 RoMa v2 做稠密匹配精修（只对弱段）</h3>
+<p><strong>缺口</strong>：稀疏关键点的定位噪声是 BA 精度的上限；学习式稠密匹配有机会把它压下去。</p>
+<p><strong>现状</strong>：RoMa v2 已原生移植（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/roma/README.md" target="_blank" rel="noopener"><code>src/roma</code></a>），<code>dense/</code> 里“矫正后匹配”是默认并支持鱼眼 / 全景；但 dense 之后相机固定（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/dense/README.md" target="_blank" rel="noopener"><code>src/dense/README</code></a>）。SfM 端没有特征度量精修，也没有引导匹配。</p>
+<p><strong>建议改法</strong></p>
+<ul>
+<li>作为 SfM 之后的可选阶段：对共视或序列窗口内的帧对，在矫正后的针孔切片上跑 RoMa v2，取高置信匹配，对已有 3D 轨迹做亚像素重定位（PixSfM 的关键点调整思路），或作为额外轨迹加入 BA，最后再跑一次带 Huber 的 BA。</li>
+<li>先限制在“残差大 / 观测少 / 序列弱段”的帧，控制成本。</li>
+</ul>
+<p><strong>来源证据</strong>：Pixel-Perfect SfM（<a href="https://arxiv.org/abs/2108.08291" target="_blank" rel="noopener">arXiv:2108.08291</a>）、DetectorFreeSfM（<a href="https://arxiv.org/abs/2306.15669" target="_blank" rel="noopener">arXiv:2306.15669</a>，摘要称 IMC 2023 第一名），摘要均无数字；RoMa 在 WxBS 上 +36%（匹配指标，不是位姿）。RoMa 为 MIT 许可，仓库 <code>LICENSES/</code> 已含 <code>MIT-RoMaV2.txt</code>；DINOv3 另有许可。</p>
+<p><strong>怎么验证</strong>：同一弱段上比较精修前后的 ATE 与重投影残差分布，并记录显存峰值与耗时。</p>
+<h3 id="s13">Q1-7　重力对齐旋转平均：先当校验器</h3>
+<p><strong>缺口</strong>：增量式在长回环上靠 BA 闭合，没有独立的全局一致性检查。</p>
+<p><strong>现状</strong>：增量式与 bottom-up 两种 mapper，全局 mapper 未做（README #16）；旋转平均只在合并时做弦均值（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/map/Merge.h#L517" target="_blank" rel="noopener"><code>Merge.h:517</code></a>）。每帧重力方向已有（<code>SensorTimeline</code> 的 up 投票、<code>--sensor-map</code> 的重力因子）。</p>
+<p><strong>建议改法</strong></p>
+<ul>
+<li>中档：对已验证配对的相对旋转加每帧重力做旋转平均，输出每帧旋转残差；用于识别误配准 / 重复结构（与 D79 的序列机制互补），也可给 assemble 阶段的拼接提供旋转初值。</li>
+<li>高档：GLOMAP 式全局定位加 BA，作为 <code>--mapper global</code>。</li>
+</ul>
+<p><strong>来源证据</strong>：重力对齐旋转平均（<a href="https://arxiv.org/abs/2410.12763" target="_blank" rel="noopener">arXiv:2410.12763</a>）摘要：比 SfM 基线平均高 13 个 AUC@1° 点且快 8 倍，比标准平面位姿图高 23 个（四个大规模数据集，非 360）。COLMAP 4.0 已并入 GLOMAP；二者均为 BSD，与 GPL-3.0 兼容（一般性判断，非法律意见）。</p>
+<p><strong>怎么验证</strong>：在带闭环的长序列上比较闭环闭合误差；看校验器标出的帧是否真对应人工确认的误配准。</p>
+<h3 id="s14">Q1-8　完整视觉–惯性 BA</h3>
+<p><strong>缺口</strong>：无特征的帧段没有约束；尺度与重力只能事后拟合。</p>
+<p><strong>现状</strong>：笔记自述该项仍开放，并写明它是不同的求解器（每帧速度与 bias 列），应排在常量参数掩码之后（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/docs/notes/imu-gps-for-sfm.md#L739" target="_blank" rel="noopener"><code>§6</code></a>）。预积分类已在（<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/sfm/core/Preintegration.h" target="_blank" rel="noopener"><code>Preintegration.h</code></a>）。</p>
+<p><strong>建议改法</strong>：给 <code>BAProblem</code> 增加每帧速度加 bias 的新参数块与预积分因子；先在合成数据与单段 clip 上做，默认关闭。</p>
+<p><strong>来源证据</strong>：Hilti-Trimble 2026 冠军方案基于 OKVIS2-X（得分 2410 / 2500，定位 RMSE 24 cm）。这是 SLAM 竞赛，不能直接换算成 SfM 精度。</p>
+<p><strong>怎么验证</strong>：在 Q1-1 的基线上，仅对“视觉弱”的子段比较。</p>
+<h3 id="s15">Q1-9　训练内联合位姿细化</h3>
+<p>下游补偿，不是 SfM 本身。</p>
+<p><strong>缺口</strong>：SfM 留下的亚像素 / 千分之几度的位姿误差，会在训练里变成模糊或浮点。</p>
+<p><strong>现状</strong></p>
+<ul>
+<li>配置项 <code>use_camera_optimizer</code> 已被列为“退役字段”（旧配置可加载，保存时不再写出；<a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/data/tests/train_config_test.cpp#L28" target="_blank" rel="noopener"><code>train_config_test.cpp:28</code></a>）。最近一次提交说明是 “clean up stub training configs”，据此<strong>推断</strong>它可能是占位（stub）而非被弃用的实现；浅克隆只有 6 个提交，无法追溯。</li>
+<li><a href="https://github.com/harry7557558/spirula-studio/blob/3137944db872f718e58891736f5f17285488d641/src/engine/Engine.h#L203" target="_blank" rel="noopener"><code>Engine.h:203</code></a>：3DGS / mip 路径不累积 viewmats 梯度；但后端 Vulkan <code>ProjectionBwd</code> 与 <code>Eval3D</code> 反向 kernel 已支持可选的 <code>v_viewmats</code> / <code>output_viewmat_grad</code>。</li>
+</ul>
+<p><strong>建议改法</strong></p>
+<ul>
+<li>把 viewmat 梯度接到优化器；参数化为每帧 6-DoF 增量，rig 帧共享（一个帧位姿加每镜头常量外参增量）；做白化预条件；对偏离 IMU / GPS gauge 加惩罚、小学习率、预热后再开。</li>
+<li>导出细化后的位姿，用 Q1-1 的独立真值检查是否真的更准。</li>
+</ul>
+<p><strong>来源证据</strong>：CamP（<a href="https://arxiv.org/abs/2308.10902" target="_blank" rel="noopener">arXiv:2308.10902</a>）摘要：Mip-NeRF 360 上相对不优化相机的 Zip-NeRF，RMSE 降低 67%，相对 SCNeRF 参数化的联合优化降低 29%。GS-SMC（<a href="https://arxiv.org/abs/2508.17876" target="_blank" rel="noopener">arXiv:2508.17876</a>）摘要：7-Scenes 中位平移 / 旋转误差降低 53.3% / 56.9%（重定位设定，不是整段 SfM）。</p>
+<p><strong>怎么验证</strong>：留出视角指标和独立真值上的位姿误差，两者都要看。</p>
+<h3 id="s16">暂不建议优先做的</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>为什么先不做</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>局部 BA</td>
+<td>README #1 自己说它主要是规模问题，且 mapper 的 BA 大多已经很小；要先测“稠密 LM 对持久 GPU BA”再决定。不是精度项</td>
+</tr>
+<tr>
+<td>Nistér 5 点 / EPnP</td>
+<td>README #8 列为未做；已有 E-from-F、P3P、gp3p；没有来源给出这两项的位姿增益</td>
+</tr>
+<tr>
+<td>SPRT 加速验证</td>
+<td>决策 D26 已实测并否决（评分只占 RANSAC 约 4%）</td>
+</tr>
+<tr>
+<td>ERP 球面 BA 整体改造</td>
+<td>默认把 360 展开成透视视图（README #11）；ISPRS 2026 指出原始鱼眼在最难场景最好。数据是原始 <code>.insv</code>，不必走这条</td>
+</tr>
+<tr>
+<td>前馈模型直接出最终位姿</td>
+<td>只适合作初始化或粗检（见 F7）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s17">4　Q2：值得加入的功能</h2>
+<p>约束：Vulkan / Slang、C++ kernel、运行时不依赖 Python、GPL-3.0；模型权重不随仓库分发。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>功能</th>
+<th>为什么有意思</th>
+<th>与现有代码的契合</th>
+<th>工作量（推断）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1 SfM 质量报告</td>
+<td>现在只有 <code>gauge.txt</code> 的“是否定向 / 是否度量”；调位姿时最缺“哪一段最差、为什么”</td>
+<td>复用 Progress 快照（<code>model.bin</code> v3）与 SensorView 图表；<code>SS_SFM_PRIOR_DUMP</code> 已能打印每个先验因子</td>
+<td>低–中</td>
+</tr>
+<tr>
+<td>F2 陀螺辅助选帧</td>
+<td>FramePick 只看图像边缘宽度与 dHash；Insta360 / GoPro 有 1 kHz 陀螺</td>
+<td><code>PickRule</code> 是一条规则被两个解码器和 GUI 共用，加“角速度上限”条件即可</td>
+<td>低</td>
+</tr>
+<tr>
+<td>F3 标定与验证模式</td>
+<td>把“出厂标定 vs 自标定”“tag 尺寸比 vs 离轴角”变成产品功能</td>
+<td><code>external/apriltag</code> 与 <code>MarkerDetector</code> 已在；BA 与相机模型已在</td>
+<td>中</td>
+</tr>
+<tr>
+<td>F4 训练内位姿 / rig 细化 + 卷帘感知渲染</td>
+<td>最终是 3DGS；SfM 残余误差由训练“买单”</td>
+<td>后端 kernel 已支持 viewmat 梯度</td>
+<td>中–高</td>
+</tr>
+<tr>
+<td>F5 LiDAR 辅助位姿精修</td>
+<td>仓库已能把重建对齐到扫描，但只是事后对齐，没反过来约束位姿</td>
+<td><code>LidarAlign.h</code> 已有 Sim3 加点到面 ICP；深度渲染已有</td>
+<td>高</td>
+</tr>
+<tr>
+<td>F6 位姿不确定度导出</td>
+<td>没有逐帧协方差，就无法区分“位姿准”和“位姿只是被先验拉住”</td>
+<td>BA 的 Schur / CG 结构里已有逐帧 6×6 预条件块</td>
+<td>中</td>
+</tr>
+<tr>
+<td>F7 前馈几何模型作“救援初始化”</td>
+<td>笔记记录过骑行场景：重建碎成单镜头片段、GPS 拟合被拒</td>
+<td>已原生移植 RoMa、MoGe、Metric3D、LoMa 等，移植流程成熟</td>
+<td>高</td>
+</tr>
+<tr>
+<td>F8 已拼接 360 视频的球面直接匹配（低优先）</td>
+<td>README #11：ERP 极区畸变下学习式匹配“未测”</td>
+<td>mapper 已能写 EQUIRECTANGULAR（模型 17）</td>
+<td>高</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s18">F1　SfM 质量报告：逐帧置信度、弱段定位、补拍建议</h3>
+<ul>
+<li>导出逐帧 JSON：观测数、平均重投影、三角化角分位、rig 内两镜头一致度（<code>calibrateRigs</code> 的 spread）、陀螺相对旋转残差、up 残差。</li>
+<li>GUI 里把弱段标红；一键“对该段提高抽帧密度并重跑”，与 FramePick 联动。</li>
+<li>覆盖空洞 / 基线过短的热力图，给补拍建议。</li>
+<li>依赖：无新依赖；同时是 Q1-1 的前端。</li>
+</ul>
+<h3 id="s19">F2　陀螺辅助选帧</h3>
+<ul>
+<li>预测模糊像素 ≈ 焦距 × 角速度 × 有效时间（<strong>推断</strong>，系数需用你的数据标定）。</li>
+<li>与图像法取并集或交集，做成开关。</li>
+<li>与 Q1-4 共用 \(\omega\)。</li>
+</ul>
+<h3 id="s20">F3　标定与验证模式（棋盘 / AprilTag）</h3>
+<ul>
+<li>绕板录一段 <code>.insv</code>，估每镜头内参与镜头间外参，写回 manifest。</li>
+<li>报告 tag 边长比对 θ 的曲线与共面残差。</li>
+<li>注意：AprilTag 在强畸变鱼眼上直接检测会有角点偏差，要先在矫正切片上检测（推断）；棋盘检测需自写或再引入。</li>
+</ul>
+<h3 id="s21">F4　训练内位姿 / rig 细化与卷帘感知渲染</h3>
+<ul>
+<li>rig 共享参数化、预条件、gauge 惩罚。</li>
+<li>渲染端接入每像素行时刻的位姿插值。</li>
+<li>依赖：需先向维护者确认 <code>use_camera_optimizer</code> 退役的原因。</li>
+</ul>
+<h3 id="s22">F5　LiDAR 辅助位姿精修</h3>
+<ul>
+<li>把扫描点到面残差或渲染深度一致性作为 BA 因子（默认关）。</li>
+<li>风险：评测与约束若用同一份真值就失真，需把数据切成两份；评测时用另一组独立真值。</li>
+</ul>
+<h3 id="s23">F6　位姿不确定度导出</h3>
+<ul>
+<li>导出每帧位姿标准差；在 F1 报告里标出低置信帧；训练时可选降权（需验证有益）。</li>
+<li>近似协方差对角块可用 <code>cg.slang</code> 的 <code>u_cg_M</code>（推断，需检验是否够用）。</li>
+</ul>
+<h3 id="s24">F7　前馈几何模型作“救援初始化”</h3>
+<ul>
+<li>仅在 mapper 碎成多个模型时触发；输出作为合并的候选初值，仍由现有 Sim3 合并与审计把关。</li>
+<li>许可需逐项核实：π³ 为 BSD-3，VGGT 为自定义许可，DUSt3R / MASt3R / VGGSfM / MASt3R-SLAM 为非商用；与 GPL-3.0 的兼容性需逐个确认。权重不随仓库分发（参照 RoMa README 的做法）。</li>
+</ul>
+<h3 id="s25">F8　已拼接 360 视频的球面直接匹配</h3>
+<ul>
+<li>只在确有拼接源需求时再做。来源数字来自稀疏室内全景数据集：EDM 在 Matterport3D / Stanford2D3D 的 AUC@5° 分别 +26.72 / +42.62；IM360 在 Matterport3D 某场景 69.05 对 27.70。不能直接外推到视频。</li>
+</ul>
+<div class="callout note">
+<p class="ct">关于许可的说明</p>
+<p>Apache-2.0、BSD、MIT 的代码一般可并入 GPL-3.0 项目；CC BY-NC 系与自定义许可需要逐个确认；模型权重的许可与代码许可分开看。以上仅为一般性说明，不是法律意见。</p>
+</div>
+<h2 id="s26">5　路线图</h2>
+<p><strong>前 2–4 周</strong>（每一步都以 Q1-1 的指标做门，没提升就保持默认关闭）：</p>
+<ol>
+<li><strong>第 1 周</strong>：Q1-1 评测基线（Hilti 适配器加自采闭环 / tag / LiDAR 三类真值）；同时做两个零成本诊断：Q1-2 的“残差 vs 离轴角”曲线，Q1-4 的“残差 vs 行号”回归。</li>
+<li><strong>第 2 周</strong>：按诊断结果做 Q1-2（先加 k5，再看要不要 EUCM；解析 <code>offset_v3</code>）与 Q1-3（先测各前端残差 MAD，再加权重列）。</li>
+<li><strong>第 3 周</strong>：Q1-5 时钟速率 / 分段偏移；F2 陀螺选帧。</li>
+<li><strong>第 4 周</strong>：F1 质量报告（直接复用 Q1-1 的指标）；若 Q1-4 的诊断为正，开始卷帘模型的合成测试。</li>
+</ol>
+<p><strong>之后</strong>：</p>
+<ul>
+<li>Q1-4 卷帘加镜头间时差正式并入 BA；F3 标定 / 验证模式。</li>
+<li>Q1-6 稠密精修（只对弱段）；Q1-7 旋转平均校验器，视结果决定是否做全局 mapper。</li>
+<li>Q1-9 / F4 训练内位姿细化（先和维护者确认退役原因）；F5 LiDAR 约束；F6 不确定度。</li>
+<li>Q1-8 完整视觉–惯性 BA；F7 前馈救援初始化（许可核实后）。</li>
+</ul>
+<h2 id="s27">6　证据边界与未核实项</h2>
+<div class="callout unv">
+<p class="ct">请注意</p>
+<ul>
+<li>只做了静态阅读和 grep，没有编译或运行；没有在真实数据上测过任何假设（包括“卷帘是否真是主因”）。</li>
+<li>“缺失”的结论局限于 <code>src/</code> 与 <code>docs/</code> 的 grep。</li>
+<li>README “Not done yet” 里有些条目可能已过时；<code>Mapper.h</code> 头注释与 README 存在不一致。</li>
+<li>Insta360 <code>offset_v3</code> 的数学模型没有确认；EUCM 的 COLMAP 参数顺序需对照文档确认。</li>
+<li><code>use_camera_optimizer</code> 是否真的不起作用，最好问维护者。</li>
+<li>来源数字均转述自调研已核实的论文摘要、仓库文档或笔记；没有摘要数字的项写“未给数字”。重力对齐旋转平均、CamP、GS-SMC 的数据集都不是 360，不能直接外推。</li>
+<li>上面的 3.3 px 是一阶示意，不是测量，也不是任何来源的数字。</li>
+<li>许可兼容性是一般性判断，需自己或法务确认。</li>
+</ul>
+</div>
+<nav class="pn"><a href="/notes/spirula-sfm/survey-360/"><small>← 上一章</small>5　提升 SfM 位姿精度的方案（二）：360 / 全向 / 双鱼眼专项</a><a class="next" href="/notes/spirula-sfm/hilti/"><small>下一章 →</small>7　Hilti-Trimble-Oxford 2026：数据集与评测流程</a></nav>
+</article>
+</div>
+<footer class="nf">Learning · Spirula · SfM 学习笔记 · 内容整理自 2026 年 10–11 月关于 spirula-studio / SfM / 3DGS 的技术问答与两份调研；凡标注「推断」「未核实」的内容请勿当作定论。</footer>
+</body>
+</html>
