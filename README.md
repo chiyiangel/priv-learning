@@ -28,6 +28,7 @@ sfm/triangulation/             第 1 课：从二维匹配到三维稀疏点云
     ba.js                      LM 光束法平差 + Schur 消元
     synth.js, twoview.js       合成场景与两视图数据
     incremental.js             增量式 SfM 教学实现（初始化 / 三角化 / PnP / BA）
+stats/llm-cost/                经济统计结课报告：大模型能力的价格拆解（v0.1）
 tests/                         node 算法测试；Playwright 浏览器检查仅本地使用
 notes/spirula-sfm/             阅读笔记系列（8 章，静态 HTML，由 tools/notes 生成）
 tools/notes/                   笔记的 Markdown 源、数据与生成脚本（见其中 README）

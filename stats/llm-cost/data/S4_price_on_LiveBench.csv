@@ -1,0 +1,28 @@
+aa_release,lb_overall,model,country,cn,open,lp,price_out,big3,cap
+claude-fable-5-1,86.11,"Claude Fable 5.1 (Xhigh, Default Fallback)",US,0,0,3.912023005428146,50.0,1,86.11
+claude-haiku-5-5,71.63,Claude Haiku 5.5 (Max),US,0,0,-0.6931471805599453,0.5,1,71.63
+claude-opus-5-5,85.99,"Claude Opus 5.5 (Max, Default Fallback)",US,0,0,2.995732273553991,20.0,1,85.99
+claude-sonnet-5-5,81.01,"Claude Sonnet 5.5 (Max, Default Fallback)",US,0,0,2.302585092994046,10.0,1,81.01
+deepseek-v4-1-flash-1017,75.77,DeepSeek V4.1 Flash 1017 (Max),CN,1,1,0.1823215567939546,1.2,0,75.77
+gemini-3-8-flash,62.7,Gemini 3.8 Flash (High),US,0,0,1.3217558399823195,3.75,1,62.7
+gemini-4-argon,81.54,Gemini 4 Argon (High),US,0,0,2.995732273553991,20.0,1,81.54
+gemma-4-31b,40.59,Gemma 4 31B (Non-reasoning),US,0,1,-0.916290731874155,0.4,1,40.59
+glm-5-3-flash,65.81,GLM-5.3-Flash,CN,1,1,-0.6931471805599453,0.5,0,65.81
+gpt-5-6-terra,70.84,GPT-5.6 Terra (Xhigh),US,0,0,2.4849066497880004,12.0,1,70.84
+gpt-6-1-sol,85.56,GPT-6.1 Sol (Max),US,0,0,2.302585092994046,10.0,1,85.56
+gpt-6-1-terra,80.46,GPT-6.1 Terra (Max),US,0,0,1.6094379124341003,5.0,1,80.46
+gpt-6-astra,86.49,GPT-6 Astra (Max),US,0,0,3.912023005428146,50.0,1,86.49
+gpt-6-luna,66.7,GPT-6 Luna (Max),US,0,0,-0.6931471805599453,0.5,1,66.7
+grok-4-6,71.04,Grok 4.6 (High),US,0,0,1.791759469228055,6.0,0,71.04
+grok-4-7,71.99,Grok 4.7 (Xhigh),US,0,0,1.791759469228055,6.0,0,71.99
+inkling,50.54,Inkling (Xhigh),US,0,1,1.3987168811184478,4.05,0,50.54
+kimi-k3,69.5,Kimi K3 (Max),CN,1,1,2.70805020110221,15.0,0,69.5
+kimi-k3-1-pro,74.67,Kimi K3.1 Pro,CN,1,1,2.302585092994046,10.0,0,74.67
+mimo-v2-6-pro,71.59,MiMo-V2.6-Pro,CN,1,1,-0.13926206733350766,0.87,0,71.59
+minimax-m3-1-flash,70.61,MiniMax-M3.1-Flash,CN,1,1,-0.5108256237659907,0.6,0,70.61
+muse-spark-1-3,65.61,Muse Spark 1.3 (Xhigh),US,0,0,1.4469189829363254,4.25,0,65.61
+muse-spark-open,55.14,Muse Spark Open (Xhigh),US,0,1,1.4469189829363254,4.25,0,55.14
+nemotron-3-5-super-vl,53.33,Nemotron 3.5 Super VL,US,0,1,-0.6931471805599453,0.5,0,53.33
+qwen3-8-27b,60.5,Qwen3.8 27B (Xhigh),CN,1,1,1.0986122886681098,3.0,0,60.5
+qwen3-8-max,64.96,Qwen3.8 Max,CN,1,0,1.791759469228055,6.0,0,64.96
+step-5-preview,60.97,Step 5 Preview,CN,1,1,0.9932517730102834,2.7,0,60.97
