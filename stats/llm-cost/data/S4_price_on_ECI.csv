@@ -1,0 +1,85 @@
+aa_release,eci,model,country,cn,open,lp,price_out,big3,cap
+claude-4-1-opus,144.74,Claude 4.1 Opus (Non-reasoning),US,0,0,4.31748811353631,75.0,1,144.74
+claude-4-5-sonnet,147.56,Claude 4.5 Sonnet (Non-reasoning),US,0,0,2.70805020110221,15.0,1,147.56
+claude-fable-5,164.19,"Claude Fable 5 (Max, Opus 4.8 Fallback)",US,0,0,3.912023005428146,50.0,1,164.19
+claude-fable-5-1,166.9,"Claude Fable 5.1 (Xhigh, Default Fallback)",US,0,0,3.912023005428146,50.0,1,166.9
+claude-haiku-5-5,160.22,Claude Haiku 5.5 (Max),US,0,0,-0.6931471805599453,0.5,1,160.22
+claude-opus-4-5,151.82,Claude Opus 4.5 (Non-reasoning),US,0,0,3.2188758248682006,25.0,1,151.82
+claude-opus-4-6,156.3,"Claude Opus 4.6 (Non-reasoning, High)",US,0,0,3.2188758248682006,25.0,1,156.3
+claude-opus-4-7,157.55,Claude Opus 4.7 (Max),US,0,0,3.2188758248682006,25.0,1,157.55
+claude-opus-4-8,159.89,Claude Opus 4.8 (Max),US,0,0,3.2188758248682006,25.0,1,159.89
+claude-opus-5,164.45,Claude Opus 5 (Xhigh),US,0,0,3.2188758248682006,25.0,1,164.45
+claude-opus-5-5,168.36,"Claude Opus 5.5 (Max, Default Fallback)",US,0,0,2.995732273553991,20.0,1,168.36
+claude-sonnet-4-6,152.86,"Claude Sonnet 4.6 (Non-reasoning, High)",US,0,0,2.70805020110221,15.0,1,152.86
+claude-sonnet-5,156.71,Claude Sonnet 5 (Max),US,0,0,2.302585092994046,10.0,1,156.71
+claude-sonnet-5-5,166.24,"Claude Sonnet 5.5 (Max, Default Fallback)",US,0,0,2.302585092994046,10.0,1,166.24
+deepseek-v3-2,146.22,DeepSeek V3.2 (Non-reasoning),CN,1,1,-0.8675005677047231,0.42,0,146.22
+deepseek-v3-2-0925,144.41,DeepSeek V3.2 Exp (Reasoning),CN,1,1,-0.8675005677047231,0.42,0,144.41
+deepseek-v4-1-flash,156.49,DeepSeek V4.1 Flash (Max),CN,1,1,0.1823215567939546,1.2,0,156.49
+deepseek-v4-1-flash-1017,159.31,DeepSeek V4.1 Flash 1017 (Max),CN,1,1,0.1823215567939546,1.2,0,159.31
+deepseek-v4-flash,154.34,DeepSeek V4 Flash 0731 (Max),CN,1,1,-1.2729656758128873,0.28,0,154.34
+deepseek-v4-pro,155.87,DeepSeek V4 Pro 0813 (Max),CN,1,1,1.3762440252663892,3.96,0,155.87
+gemini-2-5-pro,144.79,Gemini 2.5 Pro,US,0,0,2.302585092994046,10.0,1,144.79
+gemini-3-1-flash-lite,144.91,Gemini 3.1 Flash-Lite,US,0,0,0.4054651081081644,1.5,1,144.91
+gemini-3-1-pro-preview,156.24,Gemini 3.1 Pro Preview,US,0,0,2.4849066497880004,12.0,1,156.24
+gemini-3-5-flash,155.24,Gemini 3.5 Flash (High),US,0,0,2.1972245773362196,9.0,1,155.24
+gemini-3-5-flash-lite,145.59,Gemini 3.5 Flash-Lite,US,0,0,0.9162907318741551,2.5,1,145.59
+gemini-3-6-flash,155.21,Gemini 3.6 Flash (High),US,0,0,1.3217558399823195,3.75,1,155.21
+gemini-3-7-flash,158.4,Gemini 3.7 Flash (High),US,0,0,1.3217558399823195,3.75,1,158.4
+gemini-3-8-flash,158.63,Gemini 3.8 Flash (High),US,0,0,1.3217558399823195,3.75,1,158.63
+gemini-3-flash-preview,152.25,Gemini 3 Flash Preview (Non-reasoning),US,0,0,1.0986122886681098,3.0,1,152.25
+gemini-3-pro-preview,152.88,Gemini 3 Pro Preview (High),US,0,0,2.4849066497880004,12.0,1,152.88
+gemini-4-argon,166.45,Gemini 4 Argon (High),US,0,0,2.995732273553991,20.0,1,166.45
+glm-5,146.43,GLM-5 (Reasoning),CN,1,1,1.1631508098056809,3.2,0,146.43
+glm-5-1,150.67,GLM-5.1 (Reasoning),CN,1,1,1.3190856114264407,3.74,0,150.67
+glm-5-2,152.99,GLM-5.2 (Max),CN,1,1,1.4816045409242156,4.4,0,152.99
+glm-5-3,156.91,GLM-5.3 (Max),CN,1,1,1.4816045409242156,4.4,0,156.91
+glm-5-3-flash,153.64,GLM-5.3-Flash,CN,1,1,-0.6931471805599453,0.5,0,153.64
+gpt-5-1,150.87,GPT-5.1 (High),US,0,0,2.302585092994046,10.0,1,150.87
+gpt-5-2,154.42,GPT-5.2 (Xhigh),US,0,0,2.6390573296152584,14.0,1,154.42
+gpt-5-4,157.82,GPT-5.4 (Xhigh),US,0,0,2.70805020110221,15.0,1,157.82
+gpt-5-4-mini,149.34,GPT-5.4 mini (Xhigh),US,0,0,1.5040773967762742,4.5,1,149.34
+gpt-5-4-nano,146.4,GPT-5.4 nano (Xhigh),US,0,0,0.22314355131420976,1.25,1,146.4
+gpt-5-4-pro,160.21,GPT-5.4 Pro (Xhigh),US,0,0,5.19295685089021,180.0,1,160.21
+gpt-5-5,160.04,GPT-5.5 (Xhigh),US,0,0,3.4011973816621555,30.0,1,160.04
+gpt-5-6-luna,156.79,GPT-5.6 Luna (Xhigh),US,0,0,0.1823215567939546,1.2,1,156.79
+gpt-5-6-sol,162.99,GPT-5.6 Sol (Max),US,0,0,2.995732273553991,20.0,1,162.99
+gpt-5-6-terra,160.89,GPT-5.6 Terra (Xhigh),US,0,0,2.4849066497880004,12.0,1,160.89
+gpt-5-mini,146.08,GPT-5 mini (High),US,0,0,0.6931471805599453,2.0,1,146.08
+gpt-6-1-sol,168.94,GPT-6.1 Sol (Max),US,0,0,2.302585092994046,10.0,1,168.94
+gpt-6-1-terra,167.82,GPT-6.1 Terra (Max),US,0,0,1.6094379124341003,5.0,1,167.82
+gpt-6-astra,169.07,GPT-6 Astra (Max),US,0,0,3.912023005428146,50.0,1,169.07
+gpt-6-luna,156.68,GPT-6 Luna (Max),US,0,0,-0.6931471805599453,0.5,1,156.68
+gpt-6-sol-daybreak-blue,164.06,"GPT-6 Sol (Daybreak Blue, max)",US,0,0,2.302585092994046,10.0,1,164.06
+grok-4,146.86,Grok 4,US,0,0,2.70805020110221,15.0,0,146.86
+grok-4-20,152.27,Grok 4.20 0309 v2 (Reasoning),US,0,0,0.9162907318741551,2.5,0,152.27
+grok-4-5,155.08,Grok 4.5 (High),US,0,0,1.791759469228055,6.0,0,155.08
+grok-4-6,157.92,Grok 4.6 (High),US,0,0,1.791759469228055,6.0,0,157.92
+grok-4-7,156.07,Grok 4.7 (Xhigh),US,0,0,1.791759469228055,6.0,0,156.07
+grok-4-fast,144.33,Grok 4 Fast (Non-reasoning),US,0,0,-0.6931471805599453,0.5,0,144.33
+inkling,148.39,Inkling (Xhigh),US,0,1,1.3987168811184478,4.05,0,148.39
+inkling-small,150.79,Inkling Small,US,0,1,0.1823215567939546,1.2,0,150.79
+kimi-k2-5,148.72,Kimi K2.5 (Reasoning),CN,1,1,1.0986122886681098,3.0,0,148.72
+kimi-k2-6,151.56,Kimi K2.6 (Reasoning),CN,1,1,1.3862943611198906,4.0,0,151.56
+kimi-k2-7-code,151.16,Kimi K2.7 Code,CN,1,1,1.3862943611198906,4.0,0,151.16
+kimi-k2-thinking,145.51,Kimi K2 Thinking,CN,1,1,0.9162907318741551,2.5,0,145.51
+kimi-k3,158.51,Kimi K3 (Max),CN,1,1,2.70805020110221,15.0,0,158.51
+minimax-m3,147.6,MiniMax-M3,CN,1,1,0.1823215567939546,1.2,0,147.6
+muse-spark-1-1,154.87,Muse Spark 1.1 (Xhigh),US,0,0,1.4469189829363254,4.25,0,154.87
+muse-spark-1-2,155.05,Muse Spark 1.2 (Xhigh),US,0,0,1.4469189829363254,4.25,0,155.05
+muse-spark-1-3,157.98,Muse Spark 1.3 (Xhigh),US,0,0,1.4469189829363254,4.25,0,157.98
+muse-spark-open,155.42,Muse Spark Open (Xhigh),US,0,1,1.4469189829363254,4.25,0,155.42
+muse-wonder,162.02,Muse Wonder (Max),US,0,0,2.995732273553991,20.0,0,162.02
+o3,146.99,o3,US,0,0,2.0794415416798357,8.0,1,146.99
+o3-pro,147.41,o3-pro,US,0,0,4.382026634673881,80.0,1,147.41
+o4-mini,145.24,o4-mini (High),US,0,0,1.4816045409242156,4.4,1,145.24
+qwen3-5-35b-a3b,143.93,Qwen3.5 35B A3B (Reasoning),CN,1,1,0.6931471805599453,2.0,0,143.93
+qwen3-5-397b-a17b,147.87,Qwen3.5 397B A17B (Non-reasoning),CN,1,1,1.2809338454620642,3.6,0,147.87
+qwen3-6-27b,146.71,Qwen3.6 27B (Reasoning),CN,1,1,1.2809338454620642,3.6,0,146.71
+qwen3-6-35b-a3b,144.0,Qwen3.6 35B A3B (Reasoning),CN,1,1,0.8109302162163288,2.25,0,144.0
+qwen3-6-plus,148.8,Qwen3.6 Plus,CN,1,0,1.0986122886681098,3.0,0,148.8
+qwen3-7-max,154.5,Qwen3.7 Max,CN,1,0,2.0149030205422647,7.5,0,154.5
+qwen3-7-plus,147.84,Qwen3.7 Plus,CN,1,0,0.47000362924573563,1.6,0,147.84
+qwen3-8-27b,152.73,Qwen3.8 27B (Xhigh),CN,1,1,1.0986122886681098,3.0,0,152.73
+qwen3-8-max,157.43,Qwen3.8 Max,CN,1,0,1.791759469228055,6.0,0,157.43
+reflection-beam,150.78,Beam 1.0,US,0,1,0.1823215567939546,1.2,0,150.78
